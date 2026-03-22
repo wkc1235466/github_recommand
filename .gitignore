@@ -29,6 +29,12 @@ Thumbs.db
 *.log
 logs/
 
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
 # Playwright
 .playwright/
 

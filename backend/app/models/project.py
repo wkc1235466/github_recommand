@@ -1,9 +1,15 @@
-"""Project data model for MongoDB."""
+"""Project data models for SQLite using SQLAlchemy."""
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
 from enum import Enum
+from dataclasses import dataclass
+import json
+
+from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from ..database import Base
 
 
 class ProjectCategory(str, Enum):
@@ -15,72 +21,89 @@ class ProjectCategory(str, Enum):
     OTHER = "其他工具"
 
 
-class SourceInfo(BaseModel):
-    """Source information from Bilibili."""
-
-    bilibili_url: Optional[str] = None
-    up_name: Optional[str] = None
-    video_title: Optional[str] = None
-    publish_date: Optional[str] = None
-
-
-class AIAnalysis(BaseModel):
+@dataclass
+class AIAnalysis:
     """AI analysis result for a project."""
 
-    summary: Optional[str] = None  # AI生成的项目简介
-    suggested_tags: List[str] = []  # AI建议的标签
-    confidence: Optional[float] = None  # 分类置信度
+    summary: Optional[str] = None
+    suggested_tags: List[str] = None
+    confidence: Optional[float] = None
     analyzed_at: Optional[datetime] = None
 
+    def __post_init__(self):
+        if self.suggested_tags is None:
+            self.suggested_tags = []
 
-class ProjectModel(BaseModel):
-    """MongoDB document model for a GitHub project."""
 
-    id: Optional[str] = Field(None, alias="_id")
-    name: str
-    github_url: Optional[str] = None  # 可能为空（IT咖啡馆只有名称）
-    description: Optional[str] = None
-    category: Optional[str] = None  # 项目分类
-    ai_analysis: Optional[AIAnalysis] = None  # AI分析结果
+class Project(Base):
+    """SQLAlchemy model for a GitHub project."""
 
-    recommend_reason: Optional[str] = None
+    __tablename__ = "projects"
 
-    # Support both single source and multiple sources
-    source: Optional[SourceInfo] = None  # 单个来源（向后兼容）
-    sources: Optional[List[SourceInfo]] = None  # 多个来源
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    github_url: Mapped[Optional[str]] = mapped_column(String(500), unique=True, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    tags: List[str] = []
-    stars: Optional[int] = None
-    readme_cache: Optional[str] = None  # README内容缓存
+    # AI analysis stored as JSON string
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list
+    ai_confidence: Mapped[Optional[float]] = mapped_column(nullable=True)
+    ai_analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    needs_url: bool = False  # 是否需要补全GitHub地址
+    recommend_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list
+    stars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    readme_cache: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    class Config:
-        populate_by_name = True
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    needs_url: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    def get_all_sources(self) -> List[SourceInfo]:
-        """Get all sources as a list."""
-        if self.sources:
-            return self.sources
-        if self.source:
-            return [self.source]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship to sources
+    sources: Mapped[List["ProjectSource"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+    def get_tags_list(self) -> List[str]:
+        """Get tags as list."""
+        if self.tags:
+            return json.loads(self.tags)
         return []
 
-    def add_source(self, source: SourceInfo) -> None:
-        """Add a new source to the project."""
-        if self.sources is None:
-            self.sources = []
-            if self.source:
-                self.sources.append(self.source)
-                self.source = None
-        self.sources.append(source)
+    def set_tags_list(self, tags: List[str]):
+        """Set tags from list."""
+        self.tags = json.dumps(tags) if tags else None
+
+    def get_ai_tags_list(self) -> List[str]:
+        """Get AI suggested tags as list."""
+        if self.ai_tags:
+            return json.loads(self.ai_tags)
+        return []
+
+    def set_ai_tags_list(self, tags: List[str]):
+        """Set AI tags from list."""
+        self.ai_tags = json.dumps(tags) if tags else None
+
+
+class ProjectSource(Base):
+    """SQLAlchemy model for project sources (from Bilibili)."""
+
+    __tablename__ = "project_sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+
+    bilibili_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    up_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    video_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    publish_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    project: Mapped["Project"] = relationship(back_populates="sources")
 
 
 # Predefined categories for frontend

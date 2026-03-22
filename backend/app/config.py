@@ -8,14 +8,13 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # MongoDB settings
-    mongodb_url: str = "mongodb://localhost:27017"
-    mongodb_db_name: str = "github_recommend"
-
     # API settings
     api_prefix: str = "/api"
     app_name: str = "GitHub Project Recommendation System"
     debug: bool = True
+
+    # Database settings (SQLite - no external service needed)
+    # Database file will be stored in data/github_recommend.db
 
     # Crawler settings
     crawler_headless: bool = True

@@ -1,11 +1,13 @@
-"""Project API routes."""
+"""Project API routes using SQLAlchemy."""
 
 from datetime import datetime
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
-from bson import ObjectId
+from typing import Optional, List
+from fastapi import APIRouter, HTTPException, Query, Depends
+from sqlalchemy import select, func, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_collection
+from ..database import get_session, init_db
+from ..models.project import Project, ProjectSource, CATEGORIES
 from ..schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -15,25 +17,53 @@ from ..schemas.project import (
     AnalyzeResult,
     CategoryResponse,
     ReadmeResponse,
+    SourceInfoSchema,
+    AIAnalysisSchema,
 )
 from ..crawler.bilibili import BilibiliCrawler
 from ..services.ai_analyzer import AIAnalyzer
-from ..services.github_service import GitHubService, get_readme
-from ..models.project import CATEGORIES
+from ..services.github_service import get_readme
+from ..logger import log
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def objectid_to_str(obj_id) -> str:
-    """Convert ObjectId to string."""
-    return str(obj_id)
+def project_to_response(project: Project) -> dict:
+    """Convert Project model to response dict."""
+    sources = [
+        SourceInfoSchema(
+            bilibili_url=s.bilibili_url,
+            up_name=s.up_name,
+            video_title=s.video_title,
+            publish_date=s.publish_date,
+        )
+        for s in project.sources
+    ]
 
+    ai_analysis = None
+    if project.ai_summary or project.ai_tags:
+        ai_analysis = AIAnalysisSchema(
+            summary=project.ai_summary,
+            suggested_tags=project.get_ai_tags_list(),
+            confidence=project.ai_confidence,
+            analyzed_at=project.ai_analyzed_at,
+        )
 
-def project_doc_to_response(doc: dict) -> dict:
-    """Convert MongoDB document to response format."""
-    if doc:
-        doc["_id"] = objectid_to_str(doc["_id"])
-    return doc
+    return {
+        "_id": str(project.id),
+        "name": project.name,
+        "github_url": project.github_url,
+        "description": project.description,
+        "category": project.category,
+        "ai_analysis": ai_analysis,
+        "recommend_reason": project.recommend_reason,
+        "sources": sources if sources else None,
+        "tags": project.get_tags_list(),
+        "stars": project.stars,
+        "needs_url": project.needs_url,
+        "created_at": project.created_at,
+        "updated_at": project.updated_at,
+    }
 
 
 @router.get("", response_model=ProjectListResponse)
@@ -44,105 +74,100 @@ async def get_projects(
     tag: Optional[str] = Query(None, description="Filter by tag"),
     search: Optional[str] = Query(None, description="Search in name and description"),
     needs_url: Optional[bool] = Query(None, description="Filter projects that need URL"),
+    session: AsyncSession = Depends(get_session),
 ):
     """Get paginated list of projects."""
-    collection = get_collection("projects")
-
     # Build query
-    query = {}
+    query = select(Project)
+
     if category:
-        query["category"] = category
-    if tag:
-        query["tags"] = tag
+        query = query.where(Project.category == category)
     if needs_url is not None:
-        query["needs_url"] = needs_url
+        query = query.where(Project.needs_url == needs_url)
     if search:
-        query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}},
-            {"recommend_reason": {"$regex": search, "$options": "i"}},
-        ]
+        search_term = f"%{search}%"
+        query = query.where(
+            or_(
+                Project.name.ilike(search_term),
+                Project.description.ilike(search_term),
+                Project.recommend_reason.ilike(search_term),
+            )
+        )
 
     # Get total count
-    total = await collection.count_documents(query)
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await session.scalar(count_query)
 
     # Get paginated results
-    skip = (page - 1) * page_size
-    cursor = collection.find(query).sort("created_at", -1).skip(skip).limit(page_size)
-    projects = await cursor.to_list(length=page_size)
+    query = query.order_by(Project.created_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
 
-    # Convert to response format
-    projects = [project_doc_to_response(p) for p in projects]
+    result = await session.execute(query)
+    projects = result.scalars().all()
+
+    # Convert to response
+    projects_data = [project_to_response(p) for p in projects]
 
     return ProjectListResponse(
-        projects=projects,
-        total=total,
+        projects=projects_data,
+        total=total or 0,
         page=page,
         page_size=page_size,
-        has_more=(skip + page_size) < total,
+        has_more=((page - 1) * page_size + len(projects)) < (total or 0),
     )
 
 
 @router.get("/categories", response_model=list[CategoryResponse])
-async def get_categories():
+async def get_categories(session: AsyncSession = Depends(get_session)):
     """Get list of all categories with counts."""
-    collection = get_collection("projects")
-
     categories = []
     for cat in CATEGORIES:
-        count = await collection.count_documents({"category": cat["id"]})
+        count = await session.scalar(
+            select(func.count()).where(Project.category == cat["id"])
+        )
         categories.append(CategoryResponse(
             id=cat["id"],
             name=cat["name"],
             description=cat["description"],
-            count=count
+            count=count or 0
         ))
 
     return categories
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str):
+async def get_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+):
     """Get a single project by ID."""
-    collection = get_collection("projects")
-
-    try:
-        obj_id = ObjectId(project_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid project ID format")
-
-    project = await collection.find_one({"_id": obj_id})
+    project = await session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    return project_doc_to_response(project)
+    return project_to_response(project)
 
 
 @router.get("/{project_id}/readme", response_model=ReadmeResponse)
-async def get_project_readme(project_id: str):
+async def get_project_readme(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+):
     """Get README content for a project."""
-    collection = get_collection("projects")
-
-    try:
-        obj_id = ObjectId(project_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid project ID format")
-
-    project = await collection.find_one({"_id": obj_id})
+    project = await session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    github_url = project.get("github_url")
+    github_url = project.github_url
     if not github_url:
         raise HTTPException(status_code=400, detail="Project has no GitHub URL")
 
     # Check if we have cached README
-    readme_cache = project.get("readme_cache")
-    if readme_cache:
+    if project.readme_cache:
         return ReadmeResponse(
-            project_id=project_id,
-            name=project.get("name"),
-            readme=readme_cache,
+            project_id=str(project_id),
+            name=project.name,
+            readme=project.readme_cache,
             github_url=github_url
         )
 
@@ -150,14 +175,12 @@ async def get_project_readme(project_id: str):
     try:
         readme = await get_readme(github_url)
         if readme:
-            # Cache it for future use
-            await collection.update_one(
-                {"_id": obj_id},
-                {"$set": {"readme_cache": readme, "updated_at": datetime.utcnow()}}
-            )
+            project.readme_cache = readme
+            project.updated_at = datetime.utcnow()
+            await session.commit()
         return ReadmeResponse(
-            project_id=project_id,
-            name=project.get("name"),
+            project_id=str(project_id),
+            name=project.name,
             readme=readme,
             github_url=github_url
         )
@@ -166,178 +189,230 @@ async def get_project_readme(project_id: str):
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
-async def create_project(project: ProjectCreate):
+async def create_project(
+    project: ProjectCreate,
+    session: AsyncSession = Depends(get_session),
+):
     """Create a new project manually."""
-    collection = get_collection("projects")
-
     # Check if project with same GitHub URL already exists
     if project.github_url:
-        existing = await collection.find_one({"github_url": project.github_url})
+        existing = await session.scalar(
+            select(Project).where(Project.github_url == project.github_url)
+        )
         if existing:
             raise HTTPException(status_code=409, detail="Project with this GitHub URL already exists")
 
     # Check if project with same name already exists
-    existing = await collection.find_one({"name": project.name})
+    existing = await session.scalar(
+        select(Project).where(Project.name == project.name)
+    )
     if existing:
         raise HTTPException(status_code=409, detail="Project with this name already exists")
 
-    # Create document
-    doc = project.model_dump()
-    doc["created_at"] = datetime.utcnow()
-    doc["updated_at"] = datetime.utcnow()
+    # Create project
+    new_project = Project(
+        name=project.name,
+        github_url=project.github_url,
+        description=project.description,
+        category=project.category,
+        recommend_reason=project.recommend_reason,
+        stars=project.stars,
+        needs_url=project.needs_url,
+    )
+    new_project.set_tags_list(project.tags)
 
-    result = await collection.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    # Add source if provided
+    if project.source:
+        source = ProjectSource(
+            bilibili_url=project.source.bilibili_url,
+            up_name=project.source.up_name,
+            video_title=project.source.video_title,
+            publish_date=project.source.publish_date,
+        )
+        new_project.sources.append(source)
 
-    return project_doc_to_response(doc)
+    session.add(new_project)
+    await session.commit()
+    await session.refresh(new_project)
+
+    return project_to_response(new_project)
 
 
 @router.post("/crawl", response_model=CrawlResult)
-async def trigger_crawl(sources: Optional[str] = Query(None, description="Comma-separated list of sources")):
+async def trigger_crawl(
+    sources: Optional[str] = Query(None, description="Comma-separated list of sources"),
+    session: AsyncSession = Depends(get_session),
+):
     """Trigger the crawler to fetch new projects from Bilibili."""
-    # Parse sources
+    log.info(f"开始爬取数据，来源: {sources or '全部'}")
     source_list = sources.split(",") if sources else None
-
     crawler = BilibiliCrawler(sources=source_list)
 
     try:
-        # Run the crawler
         projects = await crawler.crawl()
         projects = crawler.merge_sources(projects)
+        log.info(f"爬取完成，发现 {len(projects)} 个项目")
 
         if not projects:
+            log.info("爬取完成但未发现新项目")
             return CrawlResult(
                 success=True,
-                message="Crawl completed but no new projects found",
+                message="爬取完成但未发现新项目",
                 projects_added=0,
                 projects_updated=0,
                 projects_need_url=0,
             )
 
-        # Save to database
-        collection = get_collection("projects")
         added = 0
         updated = 0
         need_url = 0
 
-        for project in projects:
-            github_url = project.get("github_url")
-            name = project.get("name")
+        for project_data in projects:
+            github_url = project_data.get("github_url")
+            name = project_data.get("name")
 
-            # Determine query key
-            query_key = github_url if github_url else name
-            query_field = "github_url" if github_url else "name"
-
-            existing = await collection.find_one({query_field: query_key})
-            project["updated_at"] = datetime.utcnow()
+            # Find existing project
+            existing = None
+            if github_url:
+                existing = await session.scalar(
+                    select(Project).where(Project.github_url == github_url)
+                )
+            if not existing and name:
+                existing = await session.scalar(
+                    select(Project).where(Project.name == name)
+                )
 
             if existing:
-                # Update existing project, merge sources
-                existing_sources = existing.get("sources") or []
-                if existing.get("source"):
-                    existing_sources.append(existing.get("source"))
+                # Update existing project
+                existing.recommend_reason = project_data.get("recommend_reason")
+                existing.updated_at = datetime.utcnow()
+                log.debug(f"更新项目: {name}")
 
-                new_source = project.get("source")
-                if new_source and new_source not in existing_sources:
-                    existing_sources.append(new_source)
+                # Add new source
+                source_data = project_data.get("source")
+                if source_data:
+                    # Check if this source already exists
+                    existing_source = await session.scalar(
+                        select(ProjectSource).where(
+                            ProjectSource.project_id == existing.id,
+                            ProjectSource.bilibili_url == source_data.get("bilibili_url"),
+                        )
+                    )
+                    if not existing_source:
+                        new_source = ProjectSource(
+                            project_id=existing.id,
+                            bilibili_url=source_data.get("bilibili_url"),
+                            up_name=source_data.get("up_name"),
+                            video_title=source_data.get("video_title"),
+                        )
+                        session.add(new_source)
 
-                project["sources"] = existing_sources
-                if "source" in project:
-                    del project["source"]
-
-                await collection.update_one(
-                    {"_id": existing["_id"]}, {"$set": project}
-                )
                 updated += 1
             else:
-                # Insert new project
-                project["created_at"] = datetime.utcnow()
-                await collection.insert_one(project)
+                # Create new project
+                new_project = Project(
+                    name=name,
+                    github_url=github_url,
+                    description=project_data.get("description"),
+                    recommend_reason=project_data.get("recommend_reason"),
+                    needs_url=not github_url,
+                )
+
+                source_data = project_data.get("source")
+                if source_data:
+                    new_source = ProjectSource(
+                        bilibili_url=source_data.get("bilibili_url"),
+                        up_name=source_data.get("up_name"),
+                        video_title=source_data.get("video_title"),
+                    )
+                    new_project.sources.append(new_source)
+
+                session.add(new_project)
+                log.debug(f"新增项目: {name}")
                 added += 1
                 if not github_url:
                     need_url += 1
 
+        await session.commit()
+        log.info(f"爬取完成: 新增 {added} 个, 更新 {updated} 个, 待补全地址 {need_url} 个")
+
         return CrawlResult(
             success=True,
-            message=f"Crawl completed successfully",
+            message=f"爬取完成",
             projects_added=added,
             projects_updated=updated,
             projects_need_url=need_url,
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Crawl failed: {str(e)}")
+        await session.rollback()
+        log.error(f"爬取失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"爬取失败: {str(e)}")
 
 
 @router.post("/{project_id}/analyze", response_model=AnalyzeResult)
-async def analyze_project(project_id: str, request: AnalyzeRequest = AnalyzeRequest()):
+async def analyze_project(
+    project_id: int,
+    request: AnalyzeRequest = AnalyzeRequest(),
+    session: AsyncSession = Depends(get_session),
+):
     """Trigger AI analysis for a project."""
-    collection = get_collection("projects")
-
-    try:
-        obj_id = ObjectId(project_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid project ID format")
-
-    project = await collection.find_one({"_id": obj_id})
+    project = await session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Check if already analyzed
-    if project.get("ai_analysis") and not request.force:
+    if project.ai_summary and not request.force:
         return AnalyzeResult(
             success=True,
             message="Project already analyzed. Use force=true to re-analyze.",
-            project_id=project_id,
-            category=project.get("category"),
-            summary=project.get("ai_analysis", {}).get("summary")
+            project_id=str(project_id),
+            category=project.category,
+            summary=project.ai_summary
         )
 
-    # Run AI analysis
     try:
         analyzer = AIAnalyzer()
         analysis = await analyzer.analyze_project(
-            name=project.get("name"),
-            github_url=project.get("github_url"),
-            existing_description=project.get("description")
+            name=project.name,
+            github_url=project.github_url,
+            existing_description=project.description
         )
 
         # Update project
-        update_data = {
-            "ai_analysis": analysis.model_dump(),
-            "category": analysis.suggested_tags[0] if analysis.suggested_tags else "其他工具",
-            "updated_at": datetime.utcnow()
-        }
+        project.ai_summary = analysis.summary
+        project.set_ai_tags_list(analysis.suggested_tags)
+        project.ai_confidence = analysis.confidence
+        project.ai_analyzed_at = analysis.analyzed_at
+        project.category = analysis.suggested_tags[0] if analysis.suggested_tags else "其他工具"
+        project.updated_at = datetime.utcnow()
 
-        await collection.update_one(
-            {"_id": obj_id},
-            {"$set": update_data}
-        )
+        await session.commit()
 
         return AnalyzeResult(
             success=True,
             message="Analysis completed successfully",
-            project_id=project_id,
-            category=update_data["category"],
+            project_id=str(project_id),
+            category=project.category,
             summary=analysis.summary
         )
 
     except Exception as e:
+        await session.rollback()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 @router.delete("/{project_id}", status_code=204)
-async def delete_project(project_id: str):
+async def delete_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+):
     """Delete a project by ID."""
-    collection = get_collection("projects")
-
-    try:
-        obj_id = ObjectId(project_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid project ID format")
-
-    result = await collection.delete_one({"_id": obj_id})
-    if result.deleted_count == 0:
+    project = await session.get(Project, project_id)
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    await session.delete(project)
+    await session.commit()
 
     return None
