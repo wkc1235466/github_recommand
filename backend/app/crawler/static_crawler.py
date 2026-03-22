@@ -66,6 +66,73 @@ class BilibiliStaticCrawler:
         """关闭客户端"""
         await self.client.aclose()
 
+    async def get_collection_videos(self, collection_video_url: str) -> List[str]:
+        """从合集视频页面提取所有视频URL
+
+        通过访问合集中的一个视频页面，提取该合集的所有视频BV号。
+        使用标题过滤确保只提取合集内的视频，排除推荐视频等干扰。
+
+        Args:
+            collection_video_url: 合集中任意视频的URL
+
+        Returns:
+            视频URL列表
+        """
+        try:
+            response = await self.client.get(collection_video_url)
+            response.raise_for_status()
+
+            html = response.text
+
+            # 提取包含「科技补全」标题的视频
+            # 这种方式可以过滤掉推荐视频等无关内容
+            pattern = r'"bvid":"(BV[a-zA-Z0-9]+)"[^}]*?"title":"([^"]+)"'
+            matches = re.findall(pattern, html)
+
+            collection_videos = []
+            seen = set()
+
+            for bvid, title in matches:
+                if bvid not in seen and "科技补全" in title:
+                    seen.add(bvid)
+                    collection_videos.append(bvid)
+
+            # 构造视频URL列表
+            video_urls = [f"https://www.bilibili.com/video/{bv}/" for bv in collection_videos]
+
+            log.info(f"从合集页面提取到 {len(video_urls)} 个视频")
+            return video_urls
+
+        except Exception as e:
+            log.error(f"获取合集视频列表失败: {e}")
+            return []
+
+    async def crawl_collection(
+        self,
+        collection_video_url: str,
+        up_name: str = "玄离199"
+    ) -> List[GitHubProject]:
+        """爬取整个合集的 GitHub 项目
+
+        Args:
+            collection_video_url: 合集中任意视频的URL
+            up_name: UP主名称
+
+        Returns:
+            所有 GitHub 项目列表
+        """
+        # 1. 获取合集所有视频
+        video_urls = await self.get_collection_videos(collection_video_url)
+
+        if not video_urls:
+            log.error("未获取到视频列表")
+            return []
+
+        log.info(f"开始爬取 {len(video_urls)} 个视频")
+
+        # 2. 爬取所有视频
+        return await self.crawl_videos(video_urls, up_name)
+
     def _generate_wbi_sign(self, params: dict) -> dict:
         """生成 wbi 签名
 
@@ -148,27 +215,36 @@ class BilibiliStaticCrawler:
         Returns:
             置顶评论数据 {"upper": {...}, "admin": {...}, ...}
         """
-        # 构造请求参数
-        params = {
-            "oid": oid,
-            "type": 1,
-            "mode": 3,  # 热门评论
-            "pagination_str": '{"offset":""}',
-            "plat": 1,
-            "seek_rpid": "",
-            "web_location": 1315875,
-        }
+        wts = int(time.time())
+        mode = 3
+        type_val = 1
+        plat = 1
+        web_location = 1315875
+        pagination_str = '{"offset":""}'
 
-        # 添加签名
-        params = self._generate_wbi_sign(params)
+        # 签名：pagination_str 用 safe="" 编码
+        encoded_pagination_for_sign = urllib.parse.quote(pagination_str, safe="")
+        sign_str = (
+            f"mode={mode}&oid={oid}&pagination_str={encoded_pagination_for_sign}"
+            f"&plat={plat}&seek_rpid=&type={type_val}"
+            f"&web_location={web_location}&wts={wts}"
+            f"{WBI_MIXIN_KEY}"
+        )
+        w_rid = hashlib.md5(sign_str.encode()).hexdigest()
 
-        # URL 编码 pagination_str
-        params["pagination_str"] = urllib.parse.quote(params["pagination_str"], safe=":")
-
-        url = "https://api.bilibili.com/x/v2/reply/wbi/main"
+        # 构造完整 URL（pagination_str 用 safe=":" 编码）
+        # 注意：直接拼接 URL，不使用 httpx 的 params，避免双重编码
+        encoded_pagination_for_url = urllib.parse.quote(pagination_str, safe=":")
+        url = (
+            f"https://api.bilibili.com/x/v2/reply/wbi/main"
+            f"?oid={oid}&type={type_val}&mode={mode}"
+            f"&pagination_str={encoded_pagination_for_url}"
+            f"&plat={plat}&seek_rpid=&web_location={web_location}"
+            f"&w_rid={w_rid}&wts={wts}"
+        )
 
         try:
-            response = await self.client.get(url, params=params)
+            response = await self.client.get(url)
             response.raise_for_status()
 
             data = response.json()
@@ -368,5 +444,45 @@ async def test_crawler():
         await crawler.close()
 
 
+async def crawl_full_collection():
+    """爬取完整合集"""
+    crawler = BilibiliStaticCrawler()
+
+    try:
+        # 合集中任意一个视频的URL
+        collection_video_url = "https://www.bilibili.com/video/BV1srwxzMEdn/"
+
+        print(f"爬取合集: {collection_video_url}")
+        print("=" * 60)
+
+        # 先获取视频列表
+        video_urls = await crawler.get_collection_videos(collection_video_url)
+        print(f"\n找到 {len(video_urls)} 个视频")
+
+        # 爬取前5个视频测试
+        print("\n爬取前 5 个视频进行测试...")
+        test_urls = video_urls[:5]
+
+        projects = await crawler.crawl_videos(test_urls, up_name="玄离199")
+
+        print(f"\n找到 {len(projects)} 个 GitHub 项目:")
+        for p in projects:
+            print(f"  - {p.name}")
+            print(f"    URL: {p.url}")
+            print(f"    来源: {p.video_title}")
+
+        print(f"\n提示: 修改 test_urls = video_urls 可爬取全部 {len(video_urls)} 个视频")
+
+    finally:
+        await crawler.close()
+
+
 if __name__ == "__main__":
-    asyncio.run(test_crawler())
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--full":
+        # 爬取完整合集（前5个视频）
+        asyncio.run(crawl_full_collection())
+    else:
+        # 测试单个视频
+        asyncio.run(test_crawler())
