@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Write",
+      "Bash(cd:*)",
+      "Edit",
+      "Bash(nvidia-smi:*)",
+      "Bash(uv:*)",
+      "Bash(PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright:*)",
+      "Bash(PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright uv run playwright install chromium)",
+      "Bash(.venv/Scripts/playwright.exe codegen \"https://space.bilibili.com/67079745/lists/3173076?type=season\" --target python-async)",
+      "Bash(.venv/Scripts/python.exe test_crawler.py)",
+      "Bash(git add .gitignore .env.example .python-version pyproject.toml uv.lock docker-compose.yml Dockerfile.backend README.md main.py backend/ frontend/ .claude/ task_plan.md)"
+    ]
+  }
+}
