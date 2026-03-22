@@ -8,7 +8,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
@@ -76,10 +76,6 @@ async def get_stats(session: AsyncSession = Depends(get_session)):
         总项目数、已爬取期数、最大期数等统计信息
     """
     # 总项目数
-    result = await session.execute(
-        select(func.count(Xuanli199Project.id))  # type: ignore
-    )
-    from sqlalchemy import func
     result = await session.execute(
         select(func.count(Xuanli199Project.id))
     )
