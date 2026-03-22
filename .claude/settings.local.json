@@ -7,10 +7,14 @@
       "Bash(nvidia-smi:*)",
       "Bash(uv:*)",
       "Bash(PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright:*)",
-      "Bash(PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright uv run playwright install chromium)",
-      "Bash(.venv/Scripts/playwright.exe codegen \"https://space.bilibili.com/67079745/lists/3173076?type=season\" --target python-async)",
-      "Bash(.venv/Scripts/python.exe test_crawler.py)",
-      "Bash(git add .gitignore .env.example .python-version pyproject.toml uv.lock docker-compose.yml Dockerfile.backend README.md main.py backend/ frontend/ .claude/ task_plan.md)"
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(git:*)",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(ls -la *.py *.png *.md)",
+      "Bash(git add -u)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: 清理测试和调试文件\n\n- 删除测试脚本: test_xuanli199.py, test_crawler.py, test_api.py\n- 删除调试脚本: debug_crawler.py, debug_comments.py, debug_page.png\n- 删除旧文件: start.py, main.py, task_plan.md\n\n爬虫功能已完整实现，可通过 API 调用:\n- POST /api/xuanli199/crawl-full - 完整爬取所有视频\n- POST /api/xuanli199/update - 增量更新\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

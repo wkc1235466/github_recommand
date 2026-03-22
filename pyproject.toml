@@ -16,6 +16,8 @@ dependencies = [
     "zhipuai>=2.0.0",
     "aiohttp>=3.9.0",
     "loguru>=0.7.0",
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
 ]
 
 [project.scripts]

@@ -7,10 +7,15 @@
 """
 
 import asyncio
+import re
 from typing import Optional
 from playwright.async_api import Page
 
 from .base import BaseCrawler
+from ..config import get_settings
+from ..logger import log
+
+settings = get_settings()
 
 
 class XuanliCrawler(BaseCrawler):
@@ -24,37 +29,31 @@ class XuanliCrawler(BaseCrawler):
         )
 
     async def _crawl_video(self, video_url: str) -> list[dict]:
-        """Crawl GitHub projects from a single video.
-
-        玄离199的视频特点：
-        1. 项目信息在置顶评论的回复中
-        2. 需要找到用户"玄离199"的回复
-        3. 回复中包含项目名称和GitHub地址
-
-        Args:
-            video_url: Bilibili video URL.
-
-        Returns:
-            List of project dictionaries.
-        """
+        """Crawl GitHub projects from a single video."""
         projects = []
         page = await self.browser.new_page()
 
         try:
-            print(f"  Crawling video: {video_url}")
+            log.info(f"  爬取视频: {video_url}")
             await page.goto(video_url, timeout=settings.crawler_timeout)
             await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
             # Get video info
             video_info = await self._get_video_info(page)
+            log.info(f"  视频标题: {video_info['title']}")
 
-            # Scroll to comments section
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
+            # Scroll to load comments
+            log.debug("  滚动到评论区...")
+            for i in range(3):
+                await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {(i+1)*0.3})")
+                await asyncio.sleep(1)
+
+            # Wait for comments to load
             await asyncio.sleep(2)
 
-            # Find the pinned comment and get replies from 玄离199
-            project_info = await self._extract_projects_from_pinned_reply(page)
+            # Extract projects from comments
+            project_info = await self._extract_projects_from_comments(page)
 
             for name, github_url in project_info:
                 project = {
@@ -71,119 +70,114 @@ class XuanliCrawler(BaseCrawler):
                     "stars": None,
                 }
                 projects.append(project)
-                print(f"    Found project: {name} - {github_url}")
+                log.info(f"    发现项目: {name} - {github_url}")
 
         except Exception as e:
-            print(f"  Error crawling video: {e}")
+            log.error(f"  爬取视频失败: {e}")
 
         finally:
             await page.close()
 
         return projects
 
-    async def _extract_projects_from_pinned_reply(self, page: Page) -> list[tuple[str, str]]:
-        """Extract project names and GitHub URLs from pinned comment replies.
-
-        玄离199通常会在置顶评论的回复中列出项目信息。
-
-        Args:
-            page: Playwright page object.
-
-        Returns:
-            List of (project_name, github_url) tuples.
-        """
+    async def _extract_projects_from_comments(self, page: Page) -> list[tuple[str, str]]:
+        """Extract project names and GitHub URLs from comments."""
         projects = []
 
         try:
-            # Method 1: Try to find replies from 玄离199 in the pinned comment
-            # B站评论区结构较为复杂，需要多层查找
+            # 方法1: 直接从页面文本中提取所有GitHub链接
+            log.debug("  方法1: 从页面提取GitHub链接...")
+            page_text = await page.evaluate("() => document.body.innerText")
 
-            # First, try to click "查看更多回复" if exists
-            try:
-                view_more_btn = await page.query_selector(".reply-item .view-more-btn")
-                if view_more_btn:
-                    await view_more_btn.click()
-                    await asyncio.sleep(1)
-            except Exception:
-                pass
+            github_pattern = r'https?://github\.com/[\w\-]+/[\w\-\.]+'
+            all_urls = re.findall(github_pattern, page_text)
 
-            # Get all reply content from 玄离199
-            # The structure is: comment -> replies -> each reply has user name and content
-            reply_data = await page.evaluate("""
-                () => {
-                    const projects = [];
+            # 去重
+            unique_urls = list(set(all_urls))
+            log.debug(f"  页面中找到 {len(unique_urls)} 个GitHub链接")
 
-                    // Find all reply items
-                    const replyItems = document.querySelectorAll('.reply-item, .sub-reply-item');
-
-                    replyItems.forEach(item => {
-                        // Check if this is from 玄离199
-                        const userEl = item.querySelector('.reply-user-name, .sub-reply-name');
-                        const contentEl = item.querySelector('.reply-content, .sub-reply-content');
-
-                        if (userEl && contentEl) {
-                            const userName = userEl.textContent.trim();
-                            const content = contentEl.textContent.trim();
-
-                            // Check if user is 玄离199 or contains github link
-                            if (userName.includes('玄离') || content.includes('github.com')) {
-                                // Extract github URLs
-                                const githubPattern = /https?:\\/\\/github\\.com\\/[\\w\\-]+\\/[\\w\\-\\.]+/g;
-                                const matches = content.match(githubPattern) || [];
-
-                                matches.forEach(url => {
-                                    // Try to extract project name from content
-                                    // Format is usually: "1. project-name: url" or similar
-                                    const beforeUrl = content.split(url)[0];
-                                    const lines = beforeUrl.split(/[\\n,，、]/);
-                                    let name = lines[lines.length - 1].trim();
-                                    // Clean up name (remove numbers, dots, etc.)
-                                    name = name.replace(/^[\\d.\\-\\s]+/, '').replace(/[:：]$/, '').trim();
-
-                                    if (!name || name.length < 2) {
-                                        // Extract from URL
-                                        const urlMatch = url.match(/github\\.com\\/([\\w\\-]+\\/([\\w\\-\\.]+))/);
-                                        if (urlMatch) {
-                                            name = urlMatch[1]; // owner/repo format
-                                        }
-                                    }
-
-                                    projects.push([name, url]);
-                                });
-                            }
-                        }
-                    });
-
-                    return projects;
-                }
-            """)
-
-            if reply_data:
-                # Deduplicate
-                seen = set()
-                for name, url in reply_data:
-                    # Normalize URL
-                    url = url.split('?')[0].rstrip('/')
-                    if url not in seen:
-                        seen.add(url)
-                        projects.append((name, url))
-
-            # Method 2: If no projects found, search entire page for GitHub URLs
-            if not projects:
-                print("    No projects found in comments, searching entire page...")
-                page_content = await page.content()
-                github_urls = self._extract_github_urls(page_content)
-
-                for url in github_urls:
-                    name = self._extract_repo_name(url)
+            for url in unique_urls:
+                url = url.split('?')[0].rstrip('/')
+                # 从URL提取项目名
+                match = re.search(r'github\.com/([\w\-]+/[\w\-\.]+)', url)
+                if match:
+                    name = match.group(1)
                     projects.append((name, url))
 
+            # 方法2: 查找置顶评论
+            if not projects:
+                log.debug("  方法2: 查找置顶评论...")
+
+                # 尝试多种选择器
+                selectors = [
+                    ".reply-item",
+                    ".comment-item",
+                    "[class*='reply']",
+                    "[class*='comment']"
+                ]
+
+                for selector in selectors:
+                    elements = await page.query_selector_all(selector)
+                    if elements:
+                        log.debug(f"    找到 {len(elements)} 个元素: {selector}")
+
+                        for el in elements[:5]:  # 只检查前5个
+                            text = await el.inner_text()
+                            if 'github.com' in text.lower() or '玄离' in text:
+                                log.debug(f"    相关内容: {text[:100]}...")
+                                urls = re.findall(github_pattern, text)
+                                for url in urls:
+                                    url = url.split('?')[0].rstrip('/')
+                                    match = re.search(r'github\.com/([\w\-]+/[\w\-\.]+)', url)
+                                    if match:
+                                        name = match.group(1)
+                                        if (name, url) not in projects:
+                                            projects.append((name, url))
+
+            # 方法3: 检查视频简介
+            if not projects:
+                log.debug("  方法3: 检查视频简介...")
+                desc = await page.evaluate("""
+                    () => {
+                        const selectors = [
+                            '.basic-desc-info',
+                            '.desc-info-text',
+                            '[class*="desc"]'
+                        ];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el) return el.innerText;
+                        }
+                        return null;
+                    }
+                """)
+                if desc:
+                    log.debug(f"    简介内容: {desc[:200]}...")
+                    urls = re.findall(github_pattern, desc)
+                    for url in urls:
+                        url = url.split('?')[0].rstrip('/')
+                        match = re.search(r'github\.com/([\w\-]+/[\w\-\.]+)', url)
+                        if match:
+                            name = match.group(1)
+                            if (name, url) not in projects:
+                                projects.append((name, url))
+
         except Exception as e:
-            print(f"    Error extracting projects: {e}")
+            log.error(f"  提取项目失败: {e}")
 
         return projects
 
+    async def _get_video_info(self, page: Page) -> dict:
+        """Get basic video information."""
+        info = {
+            "title": "Unknown",
+            "up_name": self.up_name,
+        }
 
-# Import settings at module level for use in methods
-from ..config import get_settings
-settings = get_settings()
+        try:
+            title = await page.title()
+            info["title"] = title.split(" - ")[0]
+        except Exception:
+            pass
+
+        return info
