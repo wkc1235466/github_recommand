@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .database import init_db, close_db
-from .routers import projects_router, xuanli199_router
+from .routers import projects_router, xuanli199_router, itcoffee_router
 from .logger import setup_logging, log
 
 settings = get_settings()
@@ -71,6 +71,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(projects_router, prefix=settings.api_prefix)
 app.include_router(xuanli199_router, prefix=settings.api_prefix)
+app.include_router(itcoffee_router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

@@ -1,69 +1,92 @@
-# Task Plan: GitHub 项目推荐系统 - 玄离199爬虫模块
+# Task Plan: GitHub 项目推荐系统 - ITcoffee爬虫模块
 
 ## Goal
-实现从B站「科技补全」系列视频中自动爬取GitHub项目链接，支持增量更新，存储到SQLite数据库。
+从B站「ITcoffee」合集中自动爬取GitHub项目名称，存储到SQLite数据库，通过GitHub API补全GitHub URL。
 
 ## Current Phase
-Phase 5 - 完成（系统已正常运行）
+Phase 5 - 完成 ✅
 
 ## Phases
 
-### Phase 1: 数据爬取功能开发 ✅
-- [x] 实现静态爬虫（httpx + wbi签名）
-- [x] 从视频页面提取 aid
-- [x] 获取置顶评论和二级评论
-- [x] 从UP主评论中提取GitHub链接
+### Phase 1: 研究与数据结构分析 ✅
+- [x] 访问示例视频页面，分析数据结构
+- [x] 找到合集视频列表获取方式（从视频页面HTML提取BV号）
+- [x] 分析简介中的项目名称提取方式
+- [x] 设计数据模型
 - **Status:** complete
 
-### Phase 2: 数据库设计与实现 ✅
-- [x] 设计 xuanli199 表结构
-- [x] 实现 SQLAlchemy 模型
-- [x] 创建索引优化查询
-- **Status:** complete
-
-### Phase 3: 服务层开发 ✅
-- [x] 实现完整爬取功能 (crawl_full)
-- [x] 实现增量更新逻辑 (crawl_new_episodes)
+### Phase 2: 数据爬取功能开发 ✅
+- [x] 实现合集视频列表爬取
+- [x] 实现视频简介提取
+- [x] 实现项目名称解析
 - [x] 实现去重保存
 - **Status:** complete
 
-### Phase 4: API接口开发 ✅
+### Phase 3: 数据库与API开发 ✅
+- [x] 创建 ITcoffee 数据表
+- [x] 实现 SQLAlchemy 模型
 - [x] 创建 FastAPI 路由
-- [x] 实现统计接口 GET /stats
-- [x] 实现项目列表 GET /projects
-- [x] 实现增量更新 POST /update
-- [x] 实现完整爬取 POST /crawl-full
+- [x] 实现统计和查询接口
 - **Status:** complete
 
-### Phase 5: 测试与清理 ✅
-- [x] 爬取全部92个视频
-- [x] 提取269个GitHub项目
-- [x] 清理测试文件
+### Phase 4: 测试与完善 ✅
+- [x] 爬取全部视频
+- [x] 验证数据完整性
+- [x] 清理测试代码
+- **Status:** complete
+
+### Phase 5: GitHub URL补全 ✅
+- [x] 实现GitHub API搜索（按星标排序取第一个）
+- [x] 实现批量URL补全
+- [x] 实现单个项目URL补全
 - **Status:** complete
 
 ## Key Questions
-1. ✅ 如何绕过B站wbi签名？→ 按固定顺序拼接参数后MD5加密
-2. ✅ 如何提取合集所有视频？→ 从视频页面HTML中匹配BV号和标题
-3. ✅ 如何实现增量更新？→ 查询最大期数，只爬取新视频
-4. ✅ 如何避免重复项目？→ github_url 设置 unique 约束
+1. ✅ 如何获取合集所有视频列表？→ 从视频页面HTML中匹配BV号和标题
+2. ✅ 简介中的项目名称格式是什么？→ `数字、项目名称：{name} – {desc}`
+3. ✅ 如何解析多种格式的项目名称？→ 正则匹配 `\S+` 捕获项目名
+4. ✅ 数据模型需要哪些字段？→ id, project_name, description, bilibili_url, video_title, episode_number, github_url(url_verified)
+5. ✅ 如何补全GitHub URL？→ 使用GitHub API搜索，按星标排序取第一个结果
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| 使用静态爬虫而非Playwright | 速度快，无需浏览器，API稳定 |
-| SQLite替代MongoDB | 轻量级，适合个人项目，已集成到项目中 |
-| 分层架构（models/routers/service） | 关注点分离，便于维护 |
-| wbi签名使用固定密钥 | 简单有效，避免频繁获取密钥 |
+| 使用静态爬虫（httpx） | 与玄离199模块一致，速度快 |
+| 只存储项目名称 | 简介中无完整URL，需后续补全 |
+| 正则提取项目名称 | 格式固定：`项目名称：xxx – xxx` |
+| 从视频页面HTML提取合集列表 | 复用xuanli199的方法，稳定可靠 |
+| 使用GitHub API搜索补全URL | 按星标排序，取最热门的匹配结果 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| API返回权限不足 | 1 | 检查签名顺序，修正参数拼接 |
-| httpx双重URL编码 | 2 | 直接拼接URL而非使用params |
-| func未导入 | 1 | 在routers中添加 from sqlalchemy import func |
-| async_session_maker为None | 1 | 延迟导入，使用 get_session_maker() 函数 |
+| 正则匹配项目名含空格 | 1 | 使用 `\S+` 匹配非空格字符 |
+| GitHub搜索页面超时 | 1 | 改用GitHub API接口 |
 
 ## Notes
-- 更新期状态：pending → in_progress → complete
-- 重大决策前重新阅读此计划
-- 记录所有错误以避免重复
+- 与玄离199模块不同，ITcoffee的项目在简介而非评论区
+- 项目只有名称，需要后续GitHub API补全URL
+- 参考玄离199的架构设计
+- 爬取结果：270个项目，51期
+- URL补全成功率：100%（270/270）
+
+## Test Results
+| Test | Result |
+|------|--------|
+| 视频列表提取 | ✅ 112个视频 |
+| 项目名称解析 | ✅ 正确提取 |
+| 完整爬取 | ✅ 270个项目 |
+| API接口 | ✅ 正常工作 |
+| GitHub URL补全 | ✅ 270个全部成功 (100%) |
+
+## API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/itcoffee/stats | 获取统计信息 |
+| GET | /api/itcoffee/projects | 获取项目列表 |
+| GET | /api/itcoffee/status | 获取爬取状态 |
+| POST | /api/itcoffee/update | 触发增量更新 |
+| POST | /api/itcoffee/crawl-full | 触发完整爬取 |
+| POST | /api/itcoffee/url-fill | 批量补全GitHub URL |
+| POST | /api/itcoffee/projects/{id}/fill-url | 补全单个项目URL |
+| PATCH | /api/itcoffee/projects/{id}/url | 手动更新URL |
