@@ -1,77 +1,31 @@
 <template>
-  <el-card class="project-card" shadow="hover">
-    <template #header>
-      <div class="card-header">
-        <div class="header-left">
-          <a
-            v-if="project.github_url"
-            :href="project.github_url"
-            target="_blank"
-            class="project-name"
-          >
-            <el-icon><Link /></el-icon>
-            {{ project.name }}
-          </a>
-          <span v-else class="project-name no-url">
-            <el-icon><Document /></el-icon>
-            {{ project.name }}
-            <el-tag size="small" type="warning">待补全地址</el-tag>
-          </span>
-        </div>
-        <div class="header-right">
-          <el-tag v-if="project.category" size="small" type="primary">
-            {{ project.category }}
-          </el-tag>
-          <el-button
-            type="danger"
-            size="small"
-            text
-            @click="$emit('delete', project._id)"
-          >
-            <el-icon><Delete /></el-icon>
-          </el-button>
-        </div>
-      </div>
-    </template>
-
-    <div class="project-content">
-      <!-- Stars -->
-      <div class="project-stats">
-        <span class="stars">
-          <el-icon><Star /></el-icon>
-          {{ formatStars(project.stars) }}
+  <el-card
+    class="project-card"
+    :class="{ 'list-mode': viewMode === 'list' }"
+    shadow="hover"
+    @click="handleClick"
+  >
+    <div :class="viewMode === 'list' ? 'list-layout' : 'grid-layout'">
+      <!-- Project Name -->
+      <div class="project-header">
+        <span class="project-name" @click.stop>
+          <el-icon><Folder /></el-icon>
+          {{ project.name }}
         </span>
+        <el-tag v-if="project.category" size="small" type="primary">
+          {{ project.category }}
+        </el-tag>
       </div>
 
-      <!-- Description (AI generated or original) -->
+      <!-- Description -->
       <p class="description">
         {{ project.ai_analysis?.summary || project.description || '暂无描述' }}
       </p>
-      <el-tag v-if="project.ai_analysis?.summary" size="small" type="success">
-        AI 生成简介
-      </el-tag>
 
-      <!-- Recommend Reason -->
-      <div v-if="project.recommend_reason" class="recommend-reason">
-        <el-icon><ChatDotSquare /></el-icon>
-        <span>{{ project.recommend_reason }}</span>
-      </div>
-
-      <!-- AI Suggested Tags -->
-      <div v-if="project.ai_analysis?.suggested_tags?.length" class="tags">
+      <!-- Tags -->
+      <div v-if="displayTags.length" class="tags">
         <el-tag
-          v-for="tag in project.ai_analysis.suggested_tags"
-          :key="tag"
-          size="small"
-          type="info"
-        >
-          {{ tag }}
-        </el-tag>
-      </div>
-      <!-- Original Tags fallback -->
-      <div v-else-if="project.tags && project.tags.length > 0" class="tags">
-        <el-tag
-          v-for="tag in project.tags"
+          v-for="tag in displayTags.slice(0, 3)"
           :key="tag"
           size="small"
           type="info"
@@ -80,81 +34,74 @@
         </el-tag>
       </div>
 
-      <!-- Source Info (multiple sources) -->
+      <!-- Source Info -->
       <div v-if="allSources.length > 0" class="source-info">
-        <el-icon><VideoCamera /></el-icon>
-        <div class="sources-list">
-          <div v-for="(src, idx) in allSources" :key="idx" class="source-item">
-            <span v-if="src.up_name" class="up-name">{{ src.up_name }}</span>
-            <span v-if="src.video_title" class="video-title">
-              {{ src.video_title }}
-            </span>
-          </div>
-        </div>
+        <span class="up-name">{{ firstSource?.up_name || '未知UP主' }}</span>
+        <span class="episode" v-if="firstSource?.episode_number">
+          第{{ firstSource.episode_number }}期
+        </span>
       </div>
-    </div>
 
-    <template #footer>
-      <div class="card-footer">
-        <!-- View README -->
+      <!-- Actions (shown on hover) -->
+      <div class="card-actions" @click.stop>
         <el-button
-          v-if="project.github_url"
+          type="danger"
           size="small"
-          @click="$emit('view-readme', project)"
+          text
+          @click="$emit('delete', project._id)"
         >
-          <el-icon><Document /></el-icon>
-          README
+          <el-icon><Delete /></el-icon>
         </el-button>
-
-        <!-- AI Analyze Button -->
         <el-button
           v-if="!project.ai_analysis"
           size="small"
           type="primary"
-          plain
+          text
           @click="$emit('analyze', project._id)"
         >
           <el-icon><MagicStick /></el-icon>
-          AI 分析
+          AI分析
         </el-button>
-
-        <!-- Source Link -->
-        <a
-          v-if="firstSource?.bilibili_url"
-          :href="firstSource.bilibili_url"
-          target="_blank"
-          class="source-link"
-        >
-          <el-icon><VideoPlay /></el-icon>
-          观看视频
-        </a>
-
-        <!-- GitHub Link -->
         <a
           v-if="project.github_url"
           :href="project.github_url"
           target="_blank"
-          class="github-link"
+          class="action-link"
         >
-          <el-icon><Platform /></el-icon>
+          <el-icon><Link /></el-icon>
           GitHub
         </a>
+        <a
+          v-if="firstSource?.bilibili_url"
+          :href="firstSource.bilibili_url"
+          target="_blank"
+          class="action-link"
+        >
+          <el-icon><VideoPlay /></el-icon>
+          视频
+        </a>
       </div>
-    </template>
+    </div>
   </el-card>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
 const props = defineProps({
   project: {
     type: Object,
     required: true,
   },
+  viewMode: {
+    type: String,
+    default: 'grid',
+  },
 })
 
-defineEmits(['delete', 'analyze', 'view-readme'])
+const emit = defineEmits(['delete', 'analyze', 'click'])
+const router = useRouter()
 
 const allSources = computed(() => {
   if (props.project.sources) {
@@ -170,12 +117,13 @@ const firstSource = computed(() => {
   return allSources.value[0] || null
 })
 
-const formatStars = (stars) => {
-  if (!stars) return 'N/A'
-  if (stars >= 1000) {
-    return (stars / 1000).toFixed(1) + 'k'
-  }
-  return stars.toLocaleString()
+const displayTags = computed(() => {
+  return props.project.ai_analysis?.suggested_tags || props.project.tags || []
+})
+
+const handleClick = () => {
+  emit('click', props.project)
+  router.push({ name: 'ProjectDetail', params: { id: props.project._id } })
 }
 </script>
 
@@ -184,25 +132,50 @@ const formatStars = (stars) => {
   border-radius: 8px;
   border: 1px solid #d0d7de;
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .project-card:hover {
   border-color: #0969da;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
-.card-header {
+.project-card:hover .card-actions {
+  opacity: 1;
+}
+
+/* Grid Layout */
+.grid-layout {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 12px;
 }
 
-.header-left {
-  flex: 1;
-  min-width: 0;
+/* List Layout */
+.list-mode .list-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto auto auto;
+  align-items: center;
+  gap: 16px;
 }
 
-.header-right {
+.list-mode .description {
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-mode .tags {
+  flex-wrap: nowrap;
+}
+
+.list-mode :deep(.el-card__body) {
+  padding: 12px 16px;
+}
+
+/* Common Styles */
+.project-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -214,65 +187,14 @@ const formatStars = (stars) => {
   gap: 8px;
   color: #0969da;
   font-weight: 600;
-  font-size: 16px;
-  text-decoration: none;
-  word-break: break-all;
-}
-
-.project-name:hover {
-  text-decoration: underline;
-}
-
-.project-name.no-url {
-  color: #57606a;
-}
-
-.project-content {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.project-stats {
-  display: flex;
-  gap: 16px;
-  font-size: 14px;
-  color: #57606a;
-}
-
-.stars {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.stars .el-icon {
-  color: #f0c14b;
+  font-size: 15px;
 }
 
 .description {
-  color: #24292f;
-  font-size: 14px;
+  color: #57606a;
+  font-size: 13px;
   line-height: 1.5;
   margin: 0;
-}
-
-.recommend-reason {
-  background-color: #fff8c5;
-  border: 1px solid #f0c14b;
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 13px;
-  color: #57606a;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.recommend-reason .el-icon {
-  color: #f0c14b;
-  flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .tags {
@@ -283,74 +205,64 @@ const formatStars = (stars) => {
 
 .source-info {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  color: #57606a;
-}
-
-.sources-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.source-item {
-  display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 12px;
+  color: #8b949e;
 }
 
 .up-name {
   font-weight: 500;
+  color: #57606a;
 }
 
-.video-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
+.episode {
+  padding: 2px 6px;
+  background: #f6f8fa;
+  border-radius: 4px;
 }
 
-.card-footer {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.source-link,
-.github-link {
+.card-actions {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.action-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
   color: #57606a;
   text-decoration: none;
-  transition: color 0.2s;
+  border-radius: 4px;
 }
 
-.source-link:hover,
-.github-link:hover {
+.action-link:hover {
+  background: #f6f8fa;
   color: #0969da;
-}
-
-.github-link {
-  margin-left: auto;
-}
-
-:deep(.el-card__header) {
-  padding: 16px;
-  border-bottom: 1px solid #d0d7de;
-  background-color: #f6f8fa;
 }
 
 :deep(.el-card__body) {
   padding: 16px;
 }
 
-:deep(.el-card__footer) {
-  padding: 12px 16px;
-  border-top: 1px solid #d0d7de;
-  background-color: #f6f8fa;
+@media (max-width: 768px) {
+  .list-mode .list-layout {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .list-mode .description {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .card-actions {
+    opacity: 1;
+  }
 }
 </style>

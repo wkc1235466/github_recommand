@@ -7,20 +7,29 @@
             <el-icon :size="28"><Star /></el-icon>
             <span>GitHub 项目推荐</span>
           </div>
-          <el-button
-            type="primary"
-            :loading="crawling"
-            @click="triggerCrawl"
-          >
-            <el-icon><Refresh /></el-icon>
-            {{ crawling ? '更新中...' : '更新数据' }}
-          </el-button>
+          <div class="header-actions">
+            <el-button text @click="showSettings = true">
+              <el-icon><Setting /></el-icon>
+              设置
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="crawling"
+              @click="triggerCrawl"
+            >
+              <el-icon><Refresh /></el-icon>
+              {{ crawling ? '更新中...' : '更新数据' }}
+            </el-button>
+          </div>
         </div>
       </el-header>
       <el-main>
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- Settings Dialog -->
+    <SettingsDialog v-model="showSettings" />
   </div>
 </template>
 
@@ -28,8 +37,10 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { triggerCrawl as crawlApi } from './api/projects'
+import SettingsDialog from './components/SettingsDialog.vue'
 
 const crawling = ref(false)
+const showSettings = ref(false)
 
 const triggerCrawl = async () => {
   crawling.value = true
@@ -89,6 +100,20 @@ const triggerCrawl = async () => {
 
 .logo .el-icon {
   color: #f0c14b;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions .el-button--text {
+  color: #8b949e;
+}
+
+.header-actions .el-button--text:hover {
+  color: white;
 }
 
 .el-main {

@@ -6,11 +6,13 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import Home from './views/Home.vue'
+import ProjectDetail from './views/ProjectDetail.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'Home', component: Home },
+    { path: '/project/:id', name: 'ProjectDetail', component: ProjectDetail, props: true },
   ],
 })
 

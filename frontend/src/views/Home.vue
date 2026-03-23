@@ -27,9 +27,22 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
-      <el-checkbox v-model="showNeedsUrl" @change="fetchProjects">
-        仅显示需要补全地址的项目
-      </el-checkbox>
+
+      <div class="search-bar-right">
+        <el-checkbox v-model="showNeedsUrl" @change="fetchProjects">
+          仅显示需要补全地址的项目
+        </el-checkbox>
+
+        <!-- View Toggle -->
+        <el-radio-group v-model="viewMode" size="small" class="view-toggle">
+          <el-radio-button label="grid">
+            <el-icon><Grid /></el-icon>
+          </el-radio-button>
+          <el-radio-button label="list">
+            <el-icon><List /></el-icon>
+          </el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <!-- Loading State -->
@@ -44,15 +57,16 @@
       description="暂无项目数据，点击右上角「更新数据」按钮获取最新推荐"
     />
 
-    <!-- Project Grid -->
-    <div v-else class="project-grid">
+    <!-- Project Grid/List -->
+    <div v-else :class="viewMode === 'grid' ? 'project-grid' : 'project-list'">
       <ProjectCard
         v-for="project in projects"
         :key="project._id"
         :project="project"
+        :view-mode="viewMode"
         @delete="handleDelete"
         @analyze="handleAnalyze"
-        @view-readme="handleViewReadme"
+        @click="handleProjectClick"
       />
     </div>
 
@@ -66,31 +80,17 @@
         @current-change="fetchProjects"
       />
     </div>
-
-    <!-- README Dialog -->
-    <el-dialog
-      v-model="readmeDialogVisible"
-      :title="readmeProject?.name"
-      width="80%"
-      top="5vh"
-    >
-      <div v-if="readmeLoading" class="readme-loading">
-        <el-icon class="is-loading" :size="32"><Loading /></el-icon>
-        <p>加载 README...</p>
-      </div>
-      <div v-else-if="readmeContent" class="readme-content" v-html="renderedReadme"></div>
-      <el-empty v-else description="无法加载 README" />
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { marked } from 'marked'
 import ProjectCard from '../components/ProjectCard.vue'
-import { getProjects, getCategories, deleteProject, analyzeProject, getProjectReadme } from '../api/projects'
+import { getProjects, getCategories, deleteProject, analyzeProject } from '../api/projects'
 
+const router = useRouter()
 const loading = ref(false)
 const projects = ref([])
 const categories = ref([])
@@ -100,18 +100,8 @@ const pageSize = ref(20)
 const searchQuery = ref('')
 const selectedCategory = ref('')
 const showNeedsUrl = ref(false)
+const viewMode = ref('grid') // 'grid' or 'list'
 let searchTimeout = null
-
-// README dialog
-const readmeDialogVisible = ref(false)
-const readmeLoading = ref(false)
-const readmeContent = ref('')
-const readmeProject = ref(null)
-
-const renderedReadme = computed(() => {
-  if (!readmeContent.value) return ''
-  return marked(readmeContent.value)
-})
 
 const fetchCategories = async () => {
   try {
@@ -184,20 +174,8 @@ const handleAnalyze = async (id) => {
   }
 }
 
-const handleViewReadme = async (project) => {
-  readmeProject.value = project
-  readmeDialogVisible.value = true
-  readmeLoading.value = true
-  readmeContent.value = ''
-
-  try {
-    const data = await getProjectReadme(project._id)
-    readmeContent.value = data.readme
-  } catch (error) {
-    ElMessage.error('加载 README 失败: ' + error.message)
-  } finally {
-    readmeLoading.value = false
-  }
+const handleProjectClick = (project) => {
+  router.push({ name: 'ProjectDetail', params: { id: project._id } })
 }
 
 onMounted(() => {
@@ -224,9 +202,20 @@ onMounted(() => {
 .search-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
   flex-wrap: wrap;
+}
+
+.search-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.view-toggle {
+  margin-left: 8px;
 }
 
 .loading-container {
@@ -249,58 +238,16 @@ onMounted(() => {
   gap: 20px;
 }
 
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .pagination {
   display: flex;
   justify-content: center;
   margin-top: 32px;
-}
-
-.readme-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px;
-  color: #666;
-}
-
-.readme-content {
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: 20px;
-  background: #f6f8fa;
-  border-radius: 8px;
-}
-
-.readme-content :deep(h1) {
-  font-size: 24px;
-  border-bottom: 1px solid #d0d7de;
-  padding-bottom: 8px;
-}
-
-.readme-content :deep(h2) {
-  font-size: 20px;
-  border-bottom: 1px solid #d0d7de;
-  padding-bottom: 8px;
-}
-
-.readme-content :deep(pre) {
-  background: #24292f;
-  color: #f6f8fa;
-  padding: 16px;
-  border-radius: 6px;
-  overflow-x: auto;
-}
-
-.readme-content :deep(code) {
-  background: #f6f8fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: monospace;
-}
-
-.readme-content :deep(pre code) {
-  background: none;
-  padding: 0;
 }
 
 @media (max-width: 768px) {
@@ -315,6 +262,11 @@ onMounted(() => {
 
   .search-bar .el-input {
     max-width: 100% !important;
+  }
+
+  .search-bar-right {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
