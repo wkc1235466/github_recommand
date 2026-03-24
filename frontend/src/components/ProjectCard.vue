@@ -10,7 +10,7 @@
       <div class="project-header">
         <span class="project-name" @click.stop>
           <el-icon><Folder /></el-icon>
-          {{ project.name }}
+          {{ displayName }}
         </span>
         <el-tag v-if="project.category" size="small" type="primary">
           {{ project.category }}
@@ -119,6 +119,15 @@ const firstSource = computed(() => {
 
 const displayTags = computed(() => {
   return props.project.ai_analysis?.suggested_tags || props.project.tags || []
+})
+
+// 显示简化的项目名称（去掉 owner/）
+const displayName = computed(() => {
+  const name = props.project.name || ''
+  if (name.includes('/')) {
+    return name.split('/').pop()
+  }
+  return name
 })
 
 const handleClick = () => {

@@ -19,16 +19,29 @@
       <!-- Header -->
       <div class="detail-header">
         <div class="header-main">
-          <h1 class="project-title">{{ project.name }}</h1>
-          <a
-            v-if="project.github_url"
-            :href="project.github_url"
-            target="_blank"
-            class="github-link"
-          >
-            <el-icon><Link /></el-icon>
-            {{ githubPath }}
-          </a>
+          <h1 class="project-title">{{ displayName }}</h1>
+          <div class="project-meta">
+            <span v-if="projectOwner" class="owner-info">
+              <span class="owner-label">作者：</span>
+              <a
+                :href="ownerGithubUrl"
+                target="_blank"
+                class="owner-link"
+              >
+                {{ projectOwner }}
+                <el-icon><ExternalLink /></el-icon>
+              </a>
+            </span>
+            <a
+              v-if="project.github_url"
+              :href="project.github_url"
+              target="_blank"
+              class="github-link"
+            >
+              <el-icon><Link /></el-icon>
+              {{ githubPath }}
+            </a>
+          </div>
         </div>
         <div class="header-stats">
           <span v-if="project.stars" class="stars">
@@ -178,6 +191,47 @@ const githubPath = computed(() => {
   } catch {
     return project.value.github_url
   }
+})
+
+// 从项目名称或URL提取作者
+const projectOwner = computed(() => {
+  const name = project.value?.name || ''
+  const url = project.value?.github_url || ''
+
+  // 从项目名称提取
+  if (name.includes('/')) {
+    return name.split('/')[0]
+  }
+
+  // 从URL提取
+  if (url) {
+    try {
+      const urlObj = new URL(url)
+      const parts = urlObj.pathname.slice(1).split('/')
+      if (parts.length >= 1) {
+        return parts[0]
+      }
+    } catch {}
+  }
+
+  return null
+})
+
+// 作者的GitHub主页链接
+const ownerGithubUrl = computed(() => {
+  if (projectOwner.value) {
+    return `https://github.com/${projectOwner.value}`
+  }
+  return null
+})
+
+// 显示简化的项目名称（去掉 owner/）
+const displayName = computed(() => {
+  const name = project.value?.name || ''
+  if (name.includes('/')) {
+    return name.split('/').pop()
+  }
+  return name
 })
 
 const allSources = computed(() => {
@@ -332,6 +386,38 @@ onMounted(() => {
   font-weight: 600;
   color: #24292f;
   margin: 0 0 8px 0;
+}
+
+.project-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.owner-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.owner-label {
+  color: #57606a;
+  font-size: 14px;
+}
+
+.owner-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #0969da;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.owner-link:hover {
+  text-decoration: underline;
 }
 
 .github-link {
