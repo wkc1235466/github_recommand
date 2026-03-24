@@ -19,7 +19,7 @@
 
       <!-- Description -->
       <p class="description">
-        {{ truncateDescription(project.ai_analysis?.summary || project.description || '暂无描述') }}
+        {{ project.ai_analysis?.summary || project.description || '暂无描述' }}
       </p>
 
       <!-- Tags -->
@@ -141,16 +141,6 @@ const displayName = computed(() => {
   return name
 })
 
-// 截断描述，保持卡片高度一致
-const truncateDescription = (text) => {
-  if (!text) return '暂无描述'
-  const maxLen = 60
-  if (text.length > maxLen) {
-    return text.slice(0, maxLen) + '...'
-  }
-  return text
-}
-
 const handleClick = () => {
   emit('click', props.project)
   router.push({ name: 'ProjectDetail', params: { id: props.project._id } })
@@ -163,18 +153,6 @@ const handleClick = () => {
   border: 1px solid #d0d7de;
   transition: all 0.2s ease;
   cursor: pointer;
-  width: 100%;
-  height: 100%;
-  min-height: 180px;
-  display: flex;
-  flex-direction: column;
-}
-
-.project-card :deep(.el-card__body) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
 }
 
 .project-card:hover {
@@ -237,16 +215,12 @@ const handleClick = () => {
   font-size: 13px;
   line-height: 1.5;
   margin: 0;
-  min-height: 40px;
-  max-height: 40px;
-  overflow: hidden;
 }
 
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: auto;
 }
 
 .source-info {
@@ -290,6 +264,10 @@ const handleClick = () => {
 .action-link:hover {
   background: #f6f8fa;
   color: #0969da;
+}
+
+:deep(.el-card__body) {
+  padding: 16px;
 }
 
 @media (max-width: 768px) {
