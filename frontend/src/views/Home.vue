@@ -29,6 +29,24 @@
       </el-input>
 
       <div class="search-bar-right">
+        <!-- Tag Search -->
+        <el-select
+          v-model="selectedTag"
+          placeholder="按标签筛选"
+          clearable
+          filterable
+          allow-create
+          @change="handleTagChange"
+          style="width: 200px;"
+        >
+          <el-option
+            v-for="tag in popularTags"
+            :key="tag.name"
+            :label="`${tag.name} (${tag.count})`"
+            :value="tag.name"
+          />
+        </el-select>
+
         <el-checkbox v-model="showNeedsUrl" @change="fetchProjects">
           仅显示需要补全地址的项目
         </el-checkbox>
@@ -88,7 +106,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectCard from '../components/ProjectCard.vue'
-import { getProjects, getCategories, deleteProject, analyzeProject } from '../api/projects'
+import { getProjects, getCategories, deleteProject, analyzeProject, getPopularTags } from '../api/projects'
 
 const router = useRouter()
 const loading = ref(false)
@@ -99,8 +117,10 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const searchQuery = ref('')
 const selectedCategory = ref('')
+const selectedTag = ref('')
 const showNeedsUrl = ref(false)
 const viewMode = ref('grid') // 'grid' or 'list'
+const popularTags = ref([])
 let searchTimeout = null
 
 const fetchCategories = async () => {
@@ -108,6 +128,15 @@ const fetchCategories = async () => {
     categories.value = await getCategories()
   } catch (error) {
     console.error('Failed to fetch categories:', error)
+  }
+}
+
+const fetchPopularTags = async () => {
+  try {
+    const data = await getPopularTags(50)
+    popularTags.value = data.tags || []
+  } catch (error) {
+    console.error('Failed to fetch popular tags:', error)
   }
 }
 
@@ -119,6 +148,7 @@ const fetchProjects = async () => {
       pageSize: pageSize.value,
       search: searchQuery.value || undefined,
       category: selectedCategory.value || undefined,
+      tag: selectedTag.value || undefined,
       needsUrl: showNeedsUrl.value || undefined,
     })
     projects.value = data.projects
@@ -131,6 +161,11 @@ const fetchProjects = async () => {
 }
 
 const handleCategoryChange = () => {
+  currentPage.value = 1
+  fetchProjects()
+}
+
+const handleTagChange = () => {
   currentPage.value = 1
   fetchProjects()
 }
@@ -180,6 +215,7 @@ const handleProjectClick = (project) => {
 
 onMounted(() => {
   fetchCategories()
+  fetchPopularTags()
   fetchProjects()
 })
 </script>

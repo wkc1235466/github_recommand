@@ -52,18 +52,39 @@
       </div>
 
       <!-- Tags -->
-      <div v-if="displayTags.length" class="tags-section">
+      <div class="tags-section">
         <el-tag
           v-for="tag in displayTags"
           :key="tag"
           size="default"
-          type="info"
+          :type="isUserTag(tag) ? 'success' : 'info'"
+          closable
+          @close="handleRemoveTag(tag)"
         >
           {{ tag }}
+          <el-icon v-if="isUserTag(tag)" style="margin-left: 4px;"><User /></el-icon>
         </el-tag>
         <el-tag v-if="project.category" size="default" type="primary">
           {{ project.category }}
         </el-tag>
+        <!-- Add Tag Button -->
+        <el-button
+          size="small"
+          @click="showTagInput = true"
+          v-if="!showTagInput"
+        >
+          <el-icon><Plus /></el-icon>
+          添加标签
+        </el-button>
+        <el-input
+          v-if="showTagInput"
+          v-model="newTag"
+          placeholder="输入新标签"
+          size="small"
+          style="width: 120px;"
+          @keyup.enter="handleAddTag"
+          @blur="handleAddTagBlur"
+        />
       </div>
 
       <!-- Info Cards -->
@@ -167,7 +188,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
-import { getProject, deleteProject, analyzeProject } from '../api/projects'
+import { getProject, deleteProject, analyzeProject, addUserTags, removeUserTag } from '../api/projects'
 
 const route = useRoute()
 const router = useRouter()
@@ -178,10 +199,21 @@ const readmeContent = ref('')
 const readmeLoading = ref(false)
 const readmeSource = ref('')
 const analyzing = ref(false)
+const showTagInput = ref(false)
+const newTag = ref('')
 
 const displayTags = computed(() => {
-  return project.value?.ai_analysis?.suggested_tags || project.value?.tags || []
+  const aiTags = project.value?.ai_analysis?.suggested_tags || project.value?.tags || []
+  const userTags = project.value?.user_tags || []
+  // 去重合并
+  return [...new Set([...aiTags, ...userTags])]
 })
+
+// 判断标签是否为用户标签
+const isUserTag = (tag) => {
+  const userTags = project.value?.user_tags || []
+  return userTags.includes(tag)
+}
 
 const githubPath = computed(() => {
   if (!project.value?.github_url) return ''
@@ -331,6 +363,45 @@ const handleDelete = async () => {
     if (error !== 'cancel') {
       ElMessage.error('删除失败: ' + error.message)
     }
+  }
+}
+
+const handleAddTag = async () => {
+  if (!newTag.value.trim()) {
+    showTagInput.value = false
+    return
+  }
+
+  try {
+    const result = await addUserTags(project.value._id, [newTag.value.trim()])
+    project.value.user_tags = result.tags
+    newTag.value = ''
+    showTagInput.value = false
+    ElMessage.success('标签已添加')
+  } catch (error) {
+    ElMessage.error('添加标签失败: ' + error.message)
+  }
+}
+
+const handleAddTagBlur = () => {
+  if (newTag.value.trim()) {
+    handleAddTag()
+  } else {
+    showTagInput.value = false
+  }
+}
+
+const handleRemoveTag = async (tag) => {
+  if (!isUserTag(tag)) {
+    return // 不能删除 AI 标签
+  }
+
+  try {
+    const result = await removeUserTag(project.value._id, tag)
+    project.value.user_tags = result.tags
+    ElMessage.success('标签已删除')
+  } catch (error) {
+    ElMessage.error('删除标签失败: ' + error.message)
   }
 }
 

@@ -50,6 +50,7 @@ class ProjectResponse(BaseModel):
     source: Optional[SourceInfoSchema] = None
     sources: Optional[List[SourceInfoSchema]] = None
     tags: List[str] = []
+    user_tags: List[str] = []
     stars: Optional[int] = None
     needs_url: bool = False
     created_at: datetime

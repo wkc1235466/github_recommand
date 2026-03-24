@@ -62,6 +62,7 @@ def project_to_response(project: Project) -> dict:
         "recommend_reason": project.recommend_reason,
         "sources": sources if sources else None,
         "tags": project.get_tags_list(),
+        "user_tags": project.get_user_tags_list(),
         "stars": project.stars,
         "needs_url": project.needs_url,
         "created_at": project.created_at,
@@ -87,6 +88,15 @@ async def get_projects(
         query = query.where(Project.category == category)
     if needs_url is not None:
         query = query.where(Project.needs_url == needs_url)
+    if tag:
+        # Search in both AI tags and user tags (JSON arrays)
+        tag_pattern = f'%"{tag}"%'
+        query = query.where(
+            or_(
+                Project.tags.ilike(tag_pattern),
+                Project.user_tags.ilike(tag_pattern),
+            )
+        )
     if search:
         search_term = f"%{search}%"
         query = query.where(
@@ -367,3 +377,134 @@ async def migrate_all_projects():
         "message": result.message,
         "stats": result.stats
     }
+
+
+# 用户标签相关API
+class UserTagsRequest(BaseModel):
+    """用户标签请求"""
+    tags: List[str]
+
+
+@router.get("/{project_id}/user-tags")
+async def get_user_tags(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """获取项目的用户标签"""
+    query = select(Project).where(Project.id == project_id).options(selectinload(Project.sources))
+    result = await session.execute(query)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return {"tags": project.get_user_tags_list()}
+
+
+@router.post("/{project_id}/user-tags")
+async def add_user_tag(
+    project_id: int,
+    request: UserTagsRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """添加用户标签（追加）"""
+    query = select(Project).where(Project.id == project_id).options(selectinload(Project.sources))
+    result = await session.execute(query)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 获取现有标签
+    current_tags = project.get_user_tags_list()
+
+    # 添加新标签（去重）
+    for tag in request.tags:
+        if tag and tag not in current_tags:
+            current_tags.append(tag)
+
+    project.set_user_tags_list(current_tags)
+    project.updated_at = datetime.utcnow()
+    await session.commit()
+
+    return {"success": True, "tags": current_tags}
+
+
+@router.put("/{project_id}/user-tags")
+async def set_user_tags(
+    project_id: int,
+    request: UserTagsRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """设置用户标签（覆盖）"""
+    query = select(Project).where(Project.id == project_id).options(selectinload(Project.sources))
+    result = await session.execute(query)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project.set_user_tags_list(request.tags)
+    project.updated_at = datetime.utcnow()
+    await session.commit()
+
+    return {"success": True, "tags": request.tags}
+
+
+@router.delete("/{project_id}/user-tags/{tag}")
+async def remove_user_tag(
+    project_id: int,
+    tag: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """删除单个用户标签"""
+    query = select(Project).where(Project.id == project_id).options(selectinload(Project.sources))
+    result = await session.execute(query)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    current_tags = project.get_user_tags_list()
+    if tag in current_tags:
+        current_tags.remove(tag)
+        project.set_user_tags_list(current_tags)
+        project.updated_at = datetime.utcnow()
+        await session.commit()
+
+    return {"success": True, "tags": current_tags}
+
+
+@router.get("/tags/popular")
+async def get_popular_tags(
+    limit: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+):
+    """获取热门标签"""
+    from collections import Counter
+
+    # 获取所有项目的标签
+    result = await session.execute(select(Project.tags, Project.user_tags))
+    rows = result.all()
+
+    tag_counter = Counter()
+
+    for tags, user_tags in rows:
+        if tags:
+            try:
+                import json
+                tag_list = json.loads(tags)
+                tag_counter.update(tag_list)
+            except:
+                pass
+        if user_tags:
+            try:
+                import json
+                tag_list = json.loads(user_tags)
+                tag_counter.update(tag_list)
+            except:
+                pass
+
+    popular = tag_counter.most_common(limit)
+
+    return {"tags": [{"name": tag, "count": count} for tag, count in popular]}

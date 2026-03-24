@@ -25,10 +25,10 @@
       <!-- Tags -->
       <div v-if="displayTags.length" class="tags">
         <el-tag
-          v-for="tag in displayTags.slice(0, 3)"
+          v-for="tag in displayTags.slice(0, 5)"
           :key="tag"
           size="small"
-          type="info"
+          :type="isUserTag(tag) ? 'success' : 'info'"
         >
           {{ tag }}
         </el-tag>
@@ -118,8 +118,19 @@ const firstSource = computed(() => {
 })
 
 const displayTags = computed(() => {
-  return props.project.ai_analysis?.suggested_tags || props.project.tags || []
+  // 合并 AI 标签和用户标签
+  const aiTags = props.project.ai_analysis?.suggested_tags || props.project.tags || []
+  const userTags = props.project.user_tags || []
+  // 去重合并，最多显示5个
+  const allTags = [...new Set([...aiTags, ...userTags])]
+  return allTags.slice(0, 5)
 })
+
+// 判断标签是否为用户标签
+const isUserTag = (tag) => {
+  const userTags = props.project.user_tags || []
+  return userTags.includes(tag)
+}
 
 // 显示简化的项目名称（去掉 owner/）
 const displayName = computed(() => {

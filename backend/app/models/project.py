@@ -1,4 +1,4 @@
-"""Project data models for SQLite using SQLAlchemy."""
+"""Project data models for SQLite using SQLAlchemy 1.4."""
 
 from datetime import datetime
 from typing import Optional, List
@@ -6,8 +6,8 @@ from enum import Enum
 from dataclasses import dataclass
 import json
 
-from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, Column, Float
+from sqlalchemy.orm import relationship
 
 from ..database import Base
 
@@ -18,7 +18,12 @@ class ProjectCategory(str, Enum):
     AI_ML = "AI/机器学习"
     DEV_TOOLS = "开发工具"
     DEVOPS = "系统运维"
-    OTHER = "其他工具"
+    SECURITY = "安全工具"
+    MEDIA = "媒体处理"
+    PRODUCTIVITY = "效率工具"
+    DESKTOP = "桌面应用"
+    GAME = "游戏娱乐"
+    OTHER = "其他"
 
 
 @dataclass
@@ -40,31 +45,32 @@ class Project(Base):
 
     __tablename__ = "projects"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(255), index=True)
-    github_url: Mapped[Optional[str]] = mapped_column(String(500), unique=True, nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), index=True, nullable=False)
+    github_url = Column(String(500), unique=True, nullable=True)
+    description = Column(Text, nullable=True)
+    category = Column(String(50), nullable=True)
 
     # AI analysis stored as JSON string
-    ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    ai_tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list
-    ai_confidence: Mapped[Optional[float]] = mapped_column(nullable=True)
-    ai_analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ai_summary = Column(Text, nullable=True)
+    ai_tags = Column(Text, nullable=True)  # JSON list
+    ai_confidence = Column(Float, nullable=True)
+    ai_analyzed_at = Column(DateTime, nullable=True)
 
-    recommend_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recommend_reason = Column(Text, nullable=True)
 
-    tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list
-    stars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    readme_cache: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags = Column(Text, nullable=True)  # JSON list (AI generated tags, max 3)
+    user_tags = Column(Text, nullable=True)  # JSON list (user added tags, unlimited)
+    stars = Column(Integer, nullable=True)
+    readme_cache = Column(Text, nullable=True)
 
-    needs_url: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_url = Column(Boolean, default=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship to sources
-    sources: Mapped[List["ProjectSource"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    sources = relationship("ProjectSource", back_populates="project", cascade="all, delete-orphan")
 
     def get_tags_list(self) -> List[str]:
         """Get tags as list."""
@@ -86,30 +92,45 @@ class Project(Base):
         """Set AI tags from list."""
         self.ai_tags = json.dumps(tags) if tags else None
 
+    def get_user_tags_list(self) -> List[str]:
+        """Get user added tags as list."""
+        if self.user_tags:
+            return json.loads(self.user_tags)
+        return []
+
+    def set_user_tags_list(self, tags: List[str]):
+        """Set user tags from list."""
+        self.user_tags = json.dumps(tags) if tags else None
+
 
 class ProjectSource(Base):
     """SQLAlchemy model for project sources (from Bilibili)."""
 
     __tablename__ = "project_sources"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True)
 
-    bilibili_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    up_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    video_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    publish_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    bilibili_url = Column(String(500), nullable=True)
+    up_name = Column(String(100), nullable=True)
+    video_title = Column(String(500), nullable=True)
+    publish_date = Column(String(50), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
-    project: Mapped["Project"] = relationship(back_populates="sources")
+    project = relationship("Project", back_populates="sources")
 
 
 # Predefined categories for frontend
 CATEGORIES = [
-    {"id": "AI/机器学习", "name": "AI/机器学习", "description": "LLM、AI工具、机器学习框架"},
-    {"id": "开发工具", "name": "开发工具", "description": "开发框架、库、CLI工具"},
-    {"id": "系统运维", "name": "系统运维", "description": "DevOps、监控、部署工具"},
-    {"id": "其他工具", "name": "其他工具", "description": "不属于以上分类的项目"},
+    {"id": "AI/机器学习", "name": "AI/机器学习", "description": "LLM、AI工具、Agent、机器学习框架、语音/图像/视频生成"},
+    {"id": "开发工具", "name": "开发工具", "description": "开发框架、库、CLI工具、IDE插件、API工具"},
+    {"id": "系统运维", "name": "系统运维", "description": "DevOps、监控、部署工具、Docker、数据库"},
+    {"id": "安全工具", "name": "安全工具", "description": "渗透测试、安全检测、漏洞分析"},
+    {"id": "媒体处理", "name": "媒体处理", "description": "视频、音频、图片处理工具"},
+    {"id": "效率工具", "name": "效率工具", "description": "笔记、文档、翻译、下载工具"},
+    {"id": "桌面应用", "name": "桌面应用", "description": "系统增强、桌面工具、远程工具"},
+    {"id": "游戏娱乐", "name": "游戏娱乐", "description": "游戏、娱乐相关"},
+    {"id": "其他", "name": "其他", "description": "不属于以上分类的项目"},
 ]

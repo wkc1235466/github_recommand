@@ -71,3 +71,43 @@ export const analyzeProject = async (id, force = false) => {
   const response = await api.post(`/projects/${id}/analyze`, { force })
   return response.data
 }
+
+/**
+ * Get user tags for a project
+ */
+export const getUserTags = async (id) => {
+  const response = await api.get(`/projects/${id}/user-tags`)
+  return response.data
+}
+
+/**
+ * Add user tags to a project (append)
+ */
+export const addUserTags = async (id, tags) => {
+  const response = await api.post(`/projects/${id}/user-tags`, { tags })
+  return response.data
+}
+
+/**
+ * Set user tags for a project (overwrite)
+ */
+export const setUserTags = async (id, tags) => {
+  const response = await api.put(`/projects/${id}/user-tags`, { tags })
+  return response.data
+}
+
+/**
+ * Remove a user tag from a project
+ */
+export const removeUserTag = async (id, tag) => {
+  const response = await api.delete(`/projects/${id}/user-tags/${encodeURIComponent(tag)}`)
+  return response.data
+}
+
+/**
+ * Get popular tags
+ */
+export const getPopularTags = async (limit = 20) => {
+  const response = await api.get('/projects/tags/popular', { params: { limit } })
+  return response.data
+}
