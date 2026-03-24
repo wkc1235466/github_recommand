@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..database import get_session, init_db
 from ..models.project import Project, ProjectSource, CATEGORIES
@@ -25,6 +26,7 @@ from ..schemas.project import (
 from ..services.ai_analyzer import AIAnalyzer
 from ..services.github_service import get_readme
 from ..logger import log
+from ..scripts.migrate_projects import run_migration
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -101,6 +103,7 @@ async def get_projects(
 
     # Get paginated results
     query = query.order_by(Project.created_at.desc())
+    query = query.options(selectinload(Project.sources))  # 预加载 sources 关系
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await session.execute(query)
@@ -178,7 +181,11 @@ async def get_project(
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single project by ID."""
-    project = await session.get(Project, project_id)
+    # 使用 selectinload 预加载 sources 关系，避免异步上下文中的延迟加载问题
+    query = select(Project).where(Project.id == project_id).options(selectinload(Project.sources))
+    result = await session.execute(query)
+    project = result.scalar_one_or_none()
+
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -341,3 +348,22 @@ async def delete_project(
     await session.commit()
 
     return None
+
+
+@router.post("/migrate-all")
+async def migrate_all_projects():
+    """
+    迁移所有项目到统一表
+
+    将 IT咖啡馆 和 玄离199 的项目迁移到统一的 projects 表。
+    相同 GitHub URL 的项目会合并来源信息。
+    """
+    log.info("收到迁移请求")
+
+    result = await run_migration()
+
+    return {
+        "success": result.success,
+        "message": result.message,
+        "stats": result.stats
+    }
