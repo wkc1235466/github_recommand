@@ -16,17 +16,20 @@
 
     <!-- Search and Filter -->
     <div class="search-bar">
-      <el-input
-        v-model="searchQuery"
-        placeholder="搜索项目名称或描述..."
-        clearable
-        @input="handleSearch"
-        style="max-width: 400px;"
-      >
-        <template #prefix>
-          <el-icon><Search /></el-icon>
-        </template>
-      </el-input>
+      <div class="search-bar-left">
+        <el-input
+          v-model="searchQuery"
+          placeholder="搜索项目名称或描述..."
+          clearable
+          @input="handleSearch"
+          style="max-width: 400px;"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <span class="total-count">共 {{ total }} 个项目</span>
+      </div>
 
       <div class="search-bar-right">
         <!-- Tag Search -->
@@ -94,6 +97,8 @@
         v-model:current-page="currentPage"
         :page-size="pageSize"
         :total="total"
+        :pager-count="7"
+        size="large"
         layout="prev, pager, next"
         @current-change="fetchProjects"
       />
@@ -244,6 +249,18 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.search-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.total-count {
+  color: #606266;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
 .search-bar-right {
   display: flex;
   align-items: center;
@@ -284,6 +301,26 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   margin-top: 32px;
+  padding: 16px 0;
+}
+
+.pagination :deep(.el-pagination) {
+  --el-pagination-button-width: 40px;
+  --el-pagination-button-height: 40px;
+  --el-pagination-font-size: 16px;
+}
+
+.pagination :deep(.el-pager li) {
+  font-size: 16px;
+  min-width: 40px;
+  height: 40px;
+  line-height: 40px;
+}
+
+.pagination :deep(.btn-prev),
+.pagination :deep(.btn-next) {
+  width: 40px;
+  height: 40px;
 }
 
 @media (max-width: 768px) {
@@ -298,6 +335,11 @@ onMounted(() => {
 
   .search-bar .el-input {
     max-width: 100% !important;
+  }
+
+  .search-bar-left {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .search-bar-right {
