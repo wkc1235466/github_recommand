@@ -1,7 +1,8 @@
 """SQLite database connection management using SQLAlchemy."""
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import MetaData
 from pathlib import Path
 
@@ -18,10 +19,8 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 engine = None
 async_session_maker = None
 
-
-class Base(DeclarativeBase):
-    """Base class for SQLAlchemy models."""
-    pass
+# Base class for SQLAlchemy models (兼容 1.4)
+Base = declarative_base()
 
 
 async def init_db():
@@ -35,7 +34,8 @@ async def init_db():
         echo=settings.debug,
     )
 
-    async_session_maker = async_sessionmaker(
+    # 兼容 SQLAlchemy 1.4
+    async_session_maker = sessionmaker(
         engine,
         class_=AsyncSession,
         expire_on_commit=False,

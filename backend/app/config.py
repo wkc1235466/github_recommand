@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # API settings
     api_prefix: str = "/api"
     app_name: str = "GitHub Project Recommendation System"
-    debug: bool = True
+    debug: bool = False
 
     # Database settings (SQLite - no external service needed)
     # Database file will be stored in data/github_recommend.db

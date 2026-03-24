@@ -6,8 +6,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, DateTime, Index
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, DateTime, Index, Column, Boolean
 
 from ..database import Base
 
@@ -17,27 +16,27 @@ class ITcoffeeProject(Base):
 
     __tablename__ = "itcoffee"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
 
     # 项目信息（只有名称，URL需要后续AI补全）
-    project_name: Mapped[str] = mapped_column(String(255))  # 项目名称
-    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # 项目描述
-    github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # AI补全后的URL
+    project_name = Column(String(255))  # 项目名称
+    description = Column(String(500), nullable=True)  # 项目描述
+    github_url = Column(String(500), nullable=True)  # AI补全后的URL
 
     # 来源信息
-    bilibili_url: Mapped[str] = mapped_column(String(500))
-    video_title: Mapped[str] = mapped_column(String(500), nullable=True)
-    video_publish_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    up_name: Mapped[str] = mapped_column(String(100), default="IT咖啡馆")
+    bilibili_url = Column(String(500))
+    video_title = Column(String(500), nullable=True)
+    video_publish_time = Column(DateTime, nullable=True)
+    up_name = Column(String(100), default="IT咖啡馆")
 
     # 期数（从视频标题提取，如「GitHub一周热点107期」）
-    episode_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    episode_number = Column(Integer, nullable=True)
 
     # 状态
-    url_verified: Mapped[bool] = mapped_column(default=False)  # URL是否已验证
+    url_verified = Column(Boolean, default=False)  # URL是否已验证
 
     # 时间戳
-    crawled_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    crawled_at = Column(DateTime, default=datetime.utcnow)
 
     # 索引
     __table_args__ = (

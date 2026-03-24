@@ -6,8 +6,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, DateTime, Index
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, DateTime, Index, Column
 
 from ..database import Base
 
@@ -17,23 +16,23 @@ class Xuanli199Project(Base):
 
     __tablename__ = "xuanli199"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
 
     # GitHub项目信息
-    github_url: Mapped[str] = mapped_column(String(500), unique=True)
-    project_name: Mapped[str] = mapped_column(String(255))  # owner/repo
+    github_url = Column(String(500), unique=True)
+    project_name = Column(String(255))  # owner/repo
 
     # 来源信息
-    bilibili_url: Mapped[str] = mapped_column(String(500))
-    video_title: Mapped[str] = mapped_column(String(500), nullable=True)
-    video_publish_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    up_name: Mapped[str] = mapped_column(String(100), default="玄离199")  # UP主名字
+    bilibili_url = Column(String(500))
+    video_title = Column(String(500), nullable=True)
+    video_publish_time = Column(DateTime, nullable=True)
+    up_name = Column(String(100), default="玄离199")  # UP主名字
 
     # 期数（从视频标题提取，如「科技补全94」）
-    episode_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    episode_number = Column(Integer, nullable=True)
 
     # 时间戳
-    crawled_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    crawled_at = Column(DateTime, default=datetime.utcnow)
 
     # 索引
     __table_args__ = (

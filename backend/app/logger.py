@@ -1,26 +1,14 @@
-"""日志配置模块 - 使用 loguru"""
+"""日志配置模块 - 使用 Python 标准库 logging"""
 
 import sys
+import logging
 from pathlib import Path
-from loguru import logger
 
-# 移除默认处理器
-logger.remove()
 
 # 日志格式
-LOG_FORMAT = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-    "<level>{message}</level>"
-)
-
-# 控制台简洁格式
-CONSOLE_FORMAT = (
-    "<green>{time:HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<level>{message}</level>"
-)
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d | %(message)s"
+CONSOLE_FORMAT = "%(asctime)s | %(levelname)-8s | %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def setup_logging(log_dir: str = "logs", debug: bool = False):
@@ -34,39 +22,61 @@ def setup_logging(log_dir: str = "logs", debug: bool = False):
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
+    # 获取根日志器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    # 清除现有处理器
+    root_logger.handlers.clear()
+
     # 控制台处理器
-    logger.add(
-        sys.stdout,
-        format=CONSOLE_FORMAT,
-        level="DEBUG" if debug else "INFO",
-        colorize=True,
-    )
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+    console_handler.setFormatter(logging.Formatter(CONSOLE_FORMAT, DATE_FORMAT))
+    root_logger.addHandler(console_handler)
 
     # 文件处理器 - 所有日志
-    logger.add(
+    file_handler = logging.FileHandler(
         log_path / "app.log",
-        format=LOG_FORMAT,
-        level="DEBUG",
-        rotation="10 MB",
-        retention="7 days",
-        compression="zip",
-        encoding="utf-8",
+        encoding="utf-8"
     )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
+    root_logger.addHandler(file_handler)
 
     # 文件处理器 - 仅错误日志
-    logger.add(
+    error_handler = logging.FileHandler(
         log_path / "error.log",
-        format=LOG_FORMAT,
-        level="ERROR",
-        rotation="10 MB",
-        retention="30 days",
-        compression="zip",
-        encoding="utf-8",
+        encoding="utf-8"
     )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
+    root_logger.addHandler(error_handler)
 
-    logger.info("日志系统初始化完成")
-    return logger
+    # 抑制第三方库的 DEBUG 日志
+    third_party_loggers = [
+        "sqlalchemy",
+        "sqlalchemy.engine",
+        "sqlalchemy.pool",
+        "sqlalchemy.orm",
+        "httpcore",
+        "httpx",
+        "urllib3",
+        "asyncio",
+        "aiosqlite",
+        "charset_normalizer",
+        "PIL",
+        "matplotlib",
+        "numba",
+        "http11",
+        "anyio",
+    ]
+    for logger_name in third_party_loggers:
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+
+    root_logger.info("日志系统初始化完成")
+    return root_logger
 
 
 # 创建默认日志实例
-log = logger
+log = logging.getLogger(__name__)
