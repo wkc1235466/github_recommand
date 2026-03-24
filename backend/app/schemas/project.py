@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response validation."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -72,16 +72,6 @@ class ProjectListResponse(BaseModel):
     has_more: bool
 
 
-class CrawlResult(BaseModel):
-    """Schema for crawl result."""
-
-    success: bool
-    message: str
-    projects_added: int = 0
-    projects_updated: int = 0
-    projects_need_url: int = 0  # Projects without GitHub URL
-
-
 class AnalyzeRequest(BaseModel):
     """Schema for analyze request."""
 
@@ -114,3 +104,21 @@ class ReadmeResponse(BaseModel):
     name: str
     readme: Optional[str] = None
     github_url: Optional[str] = None
+
+
+class TestModelRequest(BaseModel):
+    """测试模型连接请求"""
+
+    api_url: str
+    api_key: str
+    model: str
+    api_type: str = "claude"  # 只支持 claude
+
+
+class TestModelResponse(BaseModel):
+    """测试模型连接响应"""
+
+    success: bool
+    message: str
+    details: Optional[Dict[str, Any]] = None
+    response_time_ms: Optional[int] = None

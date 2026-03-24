@@ -1,55 +1,65 @@
 /**
- * AI 分析服务
- * 支持多种兼容 OpenAI 格式的 API
+ * AI 分析服务 - 只支持 Claude 兼容 API
  */
 
 /**
- * 调用 AI API 进行分析
+ * 获取当前配置
  */
-export async function callAI(prompt, systemPrompt = null) {
-  const apiUrl = localStorage.getItem('apiUrl') || 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-  const apiKey = localStorage.getItem('apiKey') || localStorage.getItem('glmApiKey')
-  const model = localStorage.getItem('model') || 'glm-4-flash'
-
-  if (!apiKey) {
-    throw new Error('请先在设置中配置 API Key')
-  }
-
-  const messages = []
-  if (systemPrompt) {
-    messages.push({ role: 'system', content: systemPrompt })
-  }
-  messages.push({ role: 'user', content: prompt })
-
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-        temperature: 0.3,
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error(error.error?.message || `API 请求失败: ${response.status}`)
-    }
-
-    const data = await response.json()
-    return data.choices[0]?.message?.content || ''
-  } catch (error) {
-    console.error('AI API 调用失败:', error)
-    throw error
+function getConfig() {
+  return {
+    apiUrl: localStorage.getItem('apiUrl') || 'https://api.anthropic.com/v1/messages',
+    apiKey: localStorage.getItem('apiKey') || localStorage.getItem('glmApiKey') || '',
+    apiType: localStorage.getItem('apiType') || 'claude',
+    model: localStorage.getItem('model') || 'claude-sonnet-4-5-20251001',
   }
 }
 
 /**
- * 分析 GitHub 项目，生成标签和分类
+ * 调用 AI API
+ */
+export async function callAI(prompt, systemPrompt = null) {
+  const config = getConfig()
+
+  if (!config.apiKey) {
+    throw new Error('请先在设置中配置 API Key')
+  }
+
+  return callClaudeAPI(config.apiUrl, config.apiKey, config.model, prompt, systemPrompt)
+}
+
+/**
+ * 调用 Claude API
+ */
+async function callClaudeAPI(apiUrl, apiKey, model, prompt, systemPrompt) {
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: model,
+      max_tokens: 2048,
+      system: systemPrompt || undefined,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new Error(error.error?.message || `API 请求失败: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.content[0]?.text || ''
+}
+
+/**
+ * 分析 GitHub 项目
  */
 export async function analyzeProject(name, description, githubUrl = null) {
   const categories = [
@@ -85,7 +95,6 @@ export async function analyzeProject(name, description, githubUrl = null) {
 
   // 解析 JSON
   try {
-    // 尝试提取 JSON
     let jsonStr = content
     if (content.includes('```json')) {
       jsonStr = content.split('```json')[1].split('```')[0]
@@ -110,15 +119,31 @@ export async function analyzeProject(name, description, githubUrl = null) {
 }
 
 /**
- * 获取配置状态
+ * 测试模型连通性（通过后端代理）
  */
-export function getConfig() {
-  return {
-    apiUrl: localStorage.getItem('apiUrl') || 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-    apiKey: localStorage.getItem('apiKey') || localStorage.getItem('glmApiKey') || '',
-    model: localStorage.getItem('model') || 'glm-4-flash',
-    workerUrl: localStorage.getItem('workerUrl') || '',
-    githubToken: localStorage.getItem('githubToken') || '',
-    isConfigured: !!(localStorage.getItem('apiKey') || localStorage.getItem('glmApiKey')),
+export async function testModelConnection(modelId, apiUrl, apiKey, apiType = 'claude') {
+  if (!apiKey) {
+    return { success: false, message: '请先配置 API Key' }
+  }
+
+  try {
+    const response = await fetch('/api/projects/test-model', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_url: apiUrl,
+        api_key: apiKey,
+        model: modelId,
+        api_type: apiType,
+      }),
+    })
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('测试连接失败:', error)
+    return { success: false, message: error.message || '网络请求失败' }
   }
 }

@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, Depends
+from pydantic import BaseModel
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,15 +13,15 @@ from ..schemas.project import (
     ProjectCreate,
     ProjectResponse,
     ProjectListResponse,
-    CrawlResult,
     AnalyzeRequest,
     AnalyzeResult,
     CategoryResponse,
     ReadmeResponse,
     SourceInfoSchema,
     AIAnalysisSchema,
+    TestModelRequest,
+    TestModelResponse,
 )
-from ..crawler.bilibili import BilibiliCrawler
 from ..services.ai_analyzer import AIAnalyzer
 from ..services.github_service import get_readme
 from ..logger import log
@@ -135,6 +136,42 @@ async def get_categories(session: AsyncSession = Depends(get_session)):
     return categories
 
 
+@router.post("/test-model", response_model=TestModelResponse)
+async def test_model_connection(request: TestModelRequest):
+    """测试 AI 模型连接（只支持 Claude 兼容 API）"""
+    from ..services.ai_provider_service import AIProviderService, AIProviderConfig, AIProviderType
+
+    log.info(f"测试模型连接: api_url={request.api_url}, model={request.model}, api_type={request.api_type}")
+
+    # 验证 API 类型
+    if request.api_type != "claude":
+        return TestModelResponse(
+            success=False,
+            message=f"不支持的 API 类型: {request.api_type}，当前只支持 Claude 兼容 API"
+        )
+
+    # 构建配置
+    config = AIProviderConfig(
+        api_url=request.api_url,
+        api_key=request.api_key,
+        model=request.model,
+        provider_type=AIProviderType.CLAUDE
+    )
+
+    # 执行测试
+    service = AIProviderService()
+    result = await service.test_connection(config)
+
+    log.info(f"测试结果: success={result.success}, message={result.message}")
+
+    return TestModelResponse(
+        success=result.success,
+        message=result.message,
+        details=result.details,
+        response_time_ms=result.response_time_ms
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
@@ -236,118 +273,6 @@ async def create_project(
     await session.refresh(new_project)
 
     return project_to_response(new_project)
-
-
-@router.post("/crawl", response_model=CrawlResult)
-async def trigger_crawl(
-    sources: Optional[str] = Query(None, description="Comma-separated list of sources"),
-    session: AsyncSession = Depends(get_session),
-):
-    """Trigger the crawler to fetch new projects from Bilibili."""
-    log.info(f"开始爬取数据，来源: {sources or '全部'}")
-    source_list = sources.split(",") if sources else None
-    crawler = BilibiliCrawler(sources=source_list)
-
-    try:
-        projects = await crawler.crawl()
-        projects = crawler.merge_sources(projects)
-        log.info(f"爬取完成，发现 {len(projects)} 个项目")
-
-        if not projects:
-            log.info("爬取完成但未发现新项目")
-            return CrawlResult(
-                success=True,
-                message="爬取完成但未发现新项目",
-                projects_added=0,
-                projects_updated=0,
-                projects_need_url=0,
-            )
-
-        added = 0
-        updated = 0
-        need_url = 0
-
-        for project_data in projects:
-            github_url = project_data.get("github_url")
-            name = project_data.get("name")
-
-            # Find existing project
-            existing = None
-            if github_url:
-                existing = await session.scalar(
-                    select(Project).where(Project.github_url == github_url)
-                )
-            if not existing and name:
-                existing = await session.scalar(
-                    select(Project).where(Project.name == name)
-                )
-
-            if existing:
-                # Update existing project
-                existing.recommend_reason = project_data.get("recommend_reason")
-                existing.updated_at = datetime.utcnow()
-                log.debug(f"更新项目: {name}")
-
-                # Add new source
-                source_data = project_data.get("source")
-                if source_data:
-                    # Check if this source already exists
-                    existing_source = await session.scalar(
-                        select(ProjectSource).where(
-                            ProjectSource.project_id == existing.id,
-                            ProjectSource.bilibili_url == source_data.get("bilibili_url"),
-                        )
-                    )
-                    if not existing_source:
-                        new_source = ProjectSource(
-                            project_id=existing.id,
-                            bilibili_url=source_data.get("bilibili_url"),
-                            up_name=source_data.get("up_name"),
-                            video_title=source_data.get("video_title"),
-                        )
-                        session.add(new_source)
-
-                updated += 1
-            else:
-                # Create new project
-                new_project = Project(
-                    name=name,
-                    github_url=github_url,
-                    description=project_data.get("description"),
-                    recommend_reason=project_data.get("recommend_reason"),
-                    needs_url=not github_url,
-                )
-
-                source_data = project_data.get("source")
-                if source_data:
-                    new_source = ProjectSource(
-                        bilibili_url=source_data.get("bilibili_url"),
-                        up_name=source_data.get("up_name"),
-                        video_title=source_data.get("video_title"),
-                    )
-                    new_project.sources.append(new_source)
-
-                session.add(new_project)
-                log.debug(f"新增项目: {name}")
-                added += 1
-                if not github_url:
-                    need_url += 1
-
-        await session.commit()
-        log.info(f"爬取完成: 新增 {added} 个, 更新 {updated} 个, 待补全地址 {need_url} 个")
-
-        return CrawlResult(
-            success=True,
-            message=f"爬取完成",
-            projects_added=added,
-            projects_updated=updated,
-            projects_need_url=need_url,
-        )
-
-    except Exception as e:
-        await session.rollback()
-        log.error(f"爬取失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"爬取失败: {str(e)}")
 
 
 @router.post("/{project_id}/analyze", response_model=AnalyzeResult)
