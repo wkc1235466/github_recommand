@@ -364,6 +364,109 @@ class ITcoffeeService:
 
         return saved_count, new_episodes
 
+    async def get_video_list_with_episodes(self) -> List[Tuple[str, str, Optional[int]]]:
+        """获取视频列表及其期数（快速，只获取列表不爬取内容）
+
+        Returns:
+            [(视频URL, 视频标题, 期数), ...]
+        """
+        try:
+            response = await self.client.get(self.COLLECTION_URL)
+            response.raise_for_status()
+            html = response.text
+
+            # 提取视频BV号和标题
+            pattern = r'"bvid":"(BV[a-zA-Z0-9]+)"[^}]*?"title":"([^"]+)"'
+            matches = re.findall(pattern, html)
+
+            videos = []
+            seen = set()
+
+            for bvid, title in matches:
+                # 过滤包含 GitHub/Github/热点 关键词的视频
+                if bvid not in seen and ('Github' in title or 'GitHub' in title or '热点' in title):
+                    seen.add(bvid)
+                    episode_number = self._extract_episode_number(title)
+                    videos.append((f"https://www.bilibili.com/video/{bvid}/", title, episode_number))
+
+            log.info(f"[IT咖啡馆] 从合集页面提取到 {len(videos)} 个视频")
+            return videos
+
+        except Exception as e:
+            log.error(f"获取视频列表失败: {e}")
+            return []
+
+    async def fetch_new_projects(self) -> Tuple[List[VideoProject], List[int]]:
+        """获取新项目但不保存，返回数据供统一服务处理
+
+        优化：只爬取期数大于已爬取最大期数的视频，避免爬取所有视频。
+
+        Returns:
+            (新项目列表, 新期数列表)
+        """
+        async with get_session_maker()() as session:
+            max_crawled = await self.get_max_crawled_episode(session)
+
+        log.info(f"[IT咖啡馆] 已爬取的最大期数: {max_crawled}")
+
+        # 1. 快速获取视频列表和期数
+        video_list = await self.get_video_list_with_episodes()
+
+        if not video_list:
+            return [], []
+
+        # 2. 筛选新视频（期数大于已爬取的最大期数）
+        if max_crawled:
+            new_videos = [
+                (url, title, ep) for url, title, ep in video_list
+                if ep and ep > max_crawled
+            ]
+        else:
+            new_videos = video_list
+
+        new_episodes = sorted(set(ep for _, _, ep in new_videos if ep))
+
+        if not new_videos:
+            log.info(f"[IT咖啡馆] 没有发现新视频")
+            return [], []
+
+        log.info(f"[IT咖啡馆] 发现 {len(new_videos)} 个新视频，新期数: {new_episodes}")
+
+        # 3. 只爬取新视频
+        all_projects = []
+
+        for i, (video_url, video_title, episode_number) in enumerate(new_videos, 1):
+            log.info(f"[IT咖啡馆] [{i}/{len(new_videos)}] 爬取: {video_url} (第{episode_number}期)")
+
+            try:
+                video_info = await self.get_video_info(video_url)
+                if not video_info:
+                    log.warning(f"获取视频信息失败")
+                    continue
+
+                projects = self._parse_project_names(video_info['desc'])
+
+                for name, desc in projects:
+                    project = VideoProject(
+                        project_name=name,
+                        description=desc,
+                        bilibili_url=video_url,
+                        video_title=video_info['title'],
+                        video_publish_time=video_info['publish_time'],
+                        episode_number=episode_number,
+                        up_name=video_info['owner'],
+                    )
+                    all_projects.append(project)
+                    log.info(f"  找到项目: {name}")
+
+                await asyncio.sleep(0.5)
+
+            except Exception as e:
+                log.error(f"爬取视频失败: {e}")
+
+        log.info(f"[IT咖啡馆] 爬取完成，找到 {len(all_projects)} 个新项目")
+        return all_projects, new_episodes
+
     async def crawl_full(self) -> int:
         """完整爬取（爬取所有视频）"""
         log.info("开始完整爬取...")

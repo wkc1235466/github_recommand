@@ -179,6 +179,136 @@ class Xuanli199Service:
         log.info(f"爬取完成，共找到 {len(all_projects)} 个项目")
         return all_projects
 
+    async def get_video_list_with_episodes(self) -> List[Tuple[str, str, Optional[int]]]:
+        """获取视频列表及其期数（快速，只获取列表不爬取内容）
+
+        Returns:
+            [(视频URL, 视频标题, 期数), ...]
+        """
+        try:
+            response = await self.crawler.client.get(self.COLLECTION_URL)
+            response.raise_for_status()
+            html = response.text
+
+            # 提取视频BV号和标题
+            pattern = r'"bvid":"(BV[a-zA-Z0-9]+)"[^}]*?"title":"([^"]+)"'
+            matches = re.findall(pattern, html)
+
+            videos = []
+            seen = set()
+
+            for bvid, title in matches:
+                # 过滤包含「科技补全」的视频
+                if bvid not in seen and "科技补全" in title:
+                    seen.add(bvid)
+                    episode_number = self._extract_episode_number(title)
+                    videos.append((f"https://www.bilibili.com/video/{bvid}/", title, episode_number))
+
+            log.info(f"[玄离199] 从合集页面提取到 {len(videos)} 个视频")
+            return videos
+
+        except Exception as e:
+            log.error(f"获取视频列表失败: {e}")
+            return []
+
+    async def fetch_new_projects(self) -> Tuple[List[VideoProject], List[int]]:
+        """获取新项目但不保存，返回数据供统一服务处理
+
+        优化：只爬取期数大于已爬取最大期数的视频，避免爬取所有视频。
+
+        Returns:
+            (新项目列表, 新期数列表)
+        """
+        async with get_session_maker()() as session:
+            max_crawled = await self.get_max_crawled_episode(session)
+
+        log.info(f"[玄离199] 已爬取的最大期数: {max_crawled}")
+
+        # 1. 快速获取视频列表和期数
+        video_list = await self.get_video_list_with_episodes()
+
+        if not video_list:
+            return [], []
+
+        # 2. 筛选新视频（期数大于已爬取的最大期数）
+        if max_crawled:
+            new_videos = [
+                (url, title, ep) for url, title, ep in video_list
+                if ep and ep > max_crawled
+            ]
+        else:
+            new_videos = video_list
+
+        new_episodes = sorted(set(ep for _, _, ep in new_videos if ep))
+
+        if not new_videos:
+            log.info(f"[玄离199] 没有发现新视频")
+            return [], []
+
+        log.info(f"[玄离199] 发现 {len(new_videos)} 个新视频，新期数: {new_episodes}")
+
+        # 3. 只爬取新视频
+        all_projects = []
+
+        for i, (video_url, video_title, episode_number) in enumerate(new_videos, 1):
+            log.info(f"[玄离199] [{i}/{len(new_videos)}] 爬取: {video_url} (第{episode_number}期)")
+
+            try:
+                video_info = await self.crawler.get_video_info(video_url)
+                if not video_info:
+                    log.warning(f"获取视频信息失败")
+                    continue
+
+                top_comments = await self.crawler.get_top_comments(video_info.aid)
+                if not top_comments:
+                    log.warning(f"未找到置顶评论")
+                    continue
+
+                publish_time = await self.get_video_publish_time(video_url)
+
+                github_pattern = r'https?://github\.com/[\w\-]+/[\w\-\.]+'
+
+                for top_type, top_reply in top_comments.items():
+                    if not top_reply:
+                        continue
+
+                    root_id = top_reply.get("rpid")
+                    second_comments = await self.crawler.get_second_comments(video_info.aid, root_id)
+
+                    for comment in second_comments:
+                        member = comment.get("member", {})
+                        name = member.get("uname", "")
+
+                        if "玄离" in name:
+                            content = comment.get("content", {}).get("message", "")
+                            urls = re.findall(github_pattern, content)
+
+                            for url in urls:
+                                clean_url = url.split("?")[0].rstrip("/")
+                                match = re.search(r"github\.com/([\w\-]+/[\w\-\.]+)", clean_url)
+                                if match:
+                                    project_name = match.group(1)
+
+                                    project = VideoProject(
+                                        github_url=clean_url,
+                                        project_name=project_name,
+                                        bilibili_url=video_url,
+                                        video_title=video_info.title,
+                                        video_publish_time=publish_time,
+                                        episode_number=episode_number,
+                                        up_name=name,
+                                    )
+                                    all_projects.append(project)
+                                    log.info(f"  找到项目: {project_name}")
+
+                await asyncio.sleep(1)
+
+            except Exception as e:
+                log.error(f"爬取视频失败: {e}")
+
+        log.info(f"[玄离199] 爬取完成，找到 {len(all_projects)} 个新项目")
+        return all_projects, new_episodes
+
     async def get_crawled_episodes(self, session: AsyncSession) -> List[int]:
         """获取已爬取的期数列表
 

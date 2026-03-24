@@ -224,10 +224,30 @@ onUnmounted(() => {
 const triggerCrawl = async () => {
   crawling.value = true
   try {
-    const result = await crawlApi()
-    ElMessage.success(result.message || '更新成功')
+    // 从 localStorage 读取 AI 配置
+    const apiUrl = localStorage.getItem('apiUrl') || ''
+    const apiKey = localStorage.getItem('apiKey') || ''
+    const model = localStorage.getItem('model') || 'claude-sonnet-4-5-20251001'
+
+    if (!apiUrl || !apiKey) {
+      ElMessage.warning('请先在设置中配置 AI API')
+      showSettings.value = true
+      return
+    }
+
+    const result = await crawlApi({
+      apiUrl,
+      apiKey,
+      model,
+    })
+
+    if (result.has_new) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessage.info(result.message || '数据已是最新的')
+    }
   } catch (error) {
-    ElMessage.error('更新失败: ' + error.message)
+    ElMessage.error('更新失败: ' + (error.response?.data?.detail || error.message))
   } finally {
     crawling.value = false
   }

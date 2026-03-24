@@ -25,10 +25,31 @@ from ..schemas.project import (
 )
 from ..services.ai_analyzer import AIAnalyzer
 from ..services.github_service import get_readme
+from ..services.update_service import UpdateService
 from ..logger import log
 from ..scripts.migrate_projects import run_migration
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+class CrawlRequest(BaseModel):
+    """爬取请求"""
+    api_url: str
+    api_key: str
+    model: str
+
+
+class CrawlResponse(BaseModel):
+    """爬取响应"""
+    success: bool
+    message: str
+    has_new: bool = False
+    xuanli_count: int = 0
+    itcoffee_count: int = 0
+    total_count: int = 0
+    ai_analyzed_count: int = 0
+    ai_failed_count: int = 0
+    new_episodes: dict = {}
 
 
 def project_to_response(project: Project) -> dict:
@@ -183,6 +204,50 @@ async def test_model_connection(request: TestModelRequest):
         details=result.details,
         response_time_ms=result.response_time_ms
     )
+
+
+@router.post("/crawl", response_model=CrawlResponse)
+async def crawl_new_projects(
+    request: CrawlRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """检查并更新新项目
+
+    检查玄离199和IT咖啡馆是否有新视频，如有则爬取并保存到统一的 projects 表。
+    使用用户配置的 AI 模型进行分析。
+    """
+    log.info(f"收到爬取请求: model={request.model}")
+
+    ai_config = {
+        'api_url': request.api_url,
+        'api_key': request.api_key,
+        'model': request.model,
+    }
+
+    update_service = UpdateService()
+
+    try:
+        result = await update_service.crawl_and_save(session, ai_config)
+
+        return CrawlResponse(
+            success=True,
+            message=result.message,
+            has_new=result.has_new,
+            xuanli_count=result.xuanli_count,
+            itcoffee_count=result.itcoffee_count,
+            total_count=result.total_count,
+            ai_analyzed_count=result.ai_analyzed_count,
+            ai_failed_count=result.ai_failed_count,
+            new_episodes=result.new_episodes,
+        )
+    except Exception as e:
+        log.error(f"爬取失败: {e}")
+        return CrawlResponse(
+            success=False,
+            message=f"爬取失败: {str(e)}",
+        )
+    finally:
+        await update_service.close()
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

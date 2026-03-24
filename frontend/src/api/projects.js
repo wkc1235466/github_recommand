@@ -57,10 +57,14 @@ export const deleteProject = async (id) => {
 
 /**
  * Trigger crawler to fetch new projects
+ * @param {Object} aiConfig - AI configuration { apiUrl, apiKey, model }
  */
-export const triggerCrawl = async (sources = null) => {
-  const params = sources ? { sources: sources.join(',') } : {}
-  const response = await api.post('/projects/crawl', null, { params })
+export const triggerCrawl = async (aiConfig) => {
+  const response = await api.post('/projects/crawl', {
+    api_url: aiConfig.apiUrl,
+    api_key: aiConfig.apiKey,
+    model: aiConfig.model,
+  })
   return response.data
 }
 
