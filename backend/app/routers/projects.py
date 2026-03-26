@@ -22,10 +22,13 @@ from ..schemas.project import (
     AIAnalysisSchema,
     TestModelRequest,
     TestModelResponse,
+    AISearchRequest,
+    AISearchResponse,
 )
 from ..services.ai_analyzer import AIAnalyzer
 from ..services.github_service import get_readme
 from ..services.update_service import UpdateService
+from ..services.ai_search_service import AISearchService
 from ..logger import log
 from ..scripts.migrate_projects import run_migration
 
@@ -573,3 +576,44 @@ async def get_popular_tags(
     popular = tag_counter.most_common(limit)
 
     return {"tags": [{"name": tag, "count": count} for tag, count in popular]}
+
+
+@router.post("/ai-search", response_model=AISearchResponse)
+async def ai_search(
+    request: AISearchRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """AI 智能搜索
+
+    使用 AI 进行两阶段搜索：
+    1. 识别最相关的 3 个分类
+    2. 在这些分类中找到最匹配的 3 个项目
+
+    支持缓存以提高响应速度。
+    """
+    try:
+        search_service = AISearchService()
+        result = await search_service.intelligent_search(
+            query=request.query,
+            session=session,
+            use_cache=request.use_cache
+        )
+
+        # Preload sources for all projects
+        for project in result.projects:
+            await session.refresh(project, attribute_names=['sources'])
+
+        projects_data = [project_to_response(p) for p in result.projects]
+
+        return AISearchResponse(
+            query=request.query,
+            projects=projects_data,
+            detected_categories=result.detected_categories,
+            search_summary=result.search_summary,
+            from_cache=result.from_cache,
+            total_matches=len(result.projects)
+        )
+
+    except Exception as e:
+        log.error(f"AI search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"AI 搜索失败: {str(e)}")

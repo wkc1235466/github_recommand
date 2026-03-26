@@ -28,6 +28,15 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
+        <el-button
+          type="primary"
+          :icon="MagicStick"
+          :loading="aiSearching"
+          @click="handleAISearch"
+          :disabled="!searchQuery"
+        >
+          AI 智能搜索
+        </el-button>
         <span class="total-count">共 {{ total }} 个项目</span>
       </div>
 
@@ -63,6 +72,34 @@
             <el-icon><List /></el-icon>
           </el-radio-button>
         </el-radio-group>
+      </div>
+    </div>
+
+    <!-- AI Search Results -->
+    <div v-if="aiSearchResults.length > 0" class="ai-search-results">
+      <div class="ai-search-header">
+        <el-icon class="ai-icon"><MagicStick /></el-icon>
+        <div class="ai-search-info">
+          <h3>AI 智能搜索结果</h3>
+          <p>{{ aiSearchSummary }}</p>
+          <div class="ai-search-meta">
+            <el-tag size="small" type="success">检测分类: {{ aiDetectedCategories.join('、') }}</el-tag>
+            <el-tag v-if="aiFromCache" size="small" type="info">来自缓存</el-tag>
+          </div>
+        </div>
+        <el-button size="small" @click="closeAISearch">关闭</el-button>
+      </div>
+      <div :class="viewMode === 'grid' ? 'project-grid' : 'project-list'">
+        <ProjectCard
+          v-for="project in aiSearchResults"
+          :key="project._id"
+          :project="project"
+          :view-mode="viewMode"
+          :is-ai-result="true"
+          @delete="handleDelete"
+          @analyze="handleAnalyze"
+          @click="handleProjectClick"
+        />
       </div>
     </div>
 
@@ -110,8 +147,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Grid, List, Loading, MagicStick } from '@element-plus/icons-vue'
 import ProjectCard from '../components/ProjectCard.vue'
-import { getProjects, getCategories, deleteProject, analyzeProject, getPopularTags } from '../api/projects'
+import { getProjects, getCategories, deleteProject, analyzeProject, getPopularTags, aiSearch } from '../api/projects'
 
 const router = useRouter()
 const loading = ref(false)
@@ -126,6 +164,12 @@ const selectedTag = ref('')
 const showNeedsUrl = ref(false)
 const viewMode = ref('grid') // 'grid' or 'list'
 const popularTags = ref([])
+// AI Search states
+const aiSearching = ref(false)
+const aiSearchResults = ref([])
+const aiSearchSummary = ref('')
+const aiDetectedCategories = ref([])
+const aiFromCache = ref(false)
 let searchTimeout = null
 
 const fetchCategories = async () => {
@@ -218,6 +262,38 @@ const handleProjectClick = (project) => {
   router.push({ name: 'ProjectDetail', params: { id: project._id } })
 }
 
+const handleAISearch = async () => {
+  if (!searchQuery.value) {
+    ElMessage.warning('请输入搜索内容')
+    return
+  }
+
+  aiSearching.value = true
+  try {
+    const result = await aiSearch(searchQuery.value)
+    aiSearchResults.value = result.projects
+    aiSearchSummary.value = result.search_summary
+    aiDetectedCategories.value = result.detected_categories
+    aiFromCache.value = result.from_cache
+
+    if (result.projects.length === 0) {
+      ElMessage.info('未找到相关项目')
+    } else {
+      ElMessage.success(`找到 ${result.projects.length} 个相关项目`)
+    }
+  } catch (error) {
+    ElMessage.error('AI 搜索失败: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    aiSearching.value = false
+  }
+}
+
+const closeAISearch = () => {
+  aiSearchResults.value = []
+  aiSearchSummary.value = ''
+  aiDetectedCategories.value = []
+}
+
 onMounted(() => {
   fetchCategories()
   fetchPopularTags()
@@ -265,6 +341,52 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.ai-search-results {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  border-radius: 12px;
+  border: 1px solid #e0e6ed;
+}
+
+.ai-search-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e0e6ed;
+}
+
+.ai-icon {
+  font-size: 32px;
+  color: #409eff;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.ai-search-info {
+  flex: 1;
+}
+
+.ai-search-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #303133;
+}
+
+.ai-search-info p {
+  margin: 0 0 12px 0;
+  color: #606266;
+  font-size: 14px;
+}
+
+.ai-search-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .view-toggle {

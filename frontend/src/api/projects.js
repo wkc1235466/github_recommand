@@ -115,3 +115,14 @@ export const getPopularTags = async (limit = 20) => {
   const response = await api.get('/projects/tags/popular', { params: { limit } })
   return response.data
 }
+
+/**
+ * AI intelligent search
+ */
+export const aiSearch = async (query, useCache = true) => {
+  const response = await api.post('/projects/ai-search', {
+    query,
+    use_cache: useCache
+  })
+  return response.data
+}

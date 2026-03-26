@@ -122,6 +122,45 @@ class ProjectSource(Base):
     project = relationship("Project", back_populates="sources")
 
 
+class SearchCache(Base):
+    """Search cache for AI search results."""
+
+    __tablename__ = "search_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(String(500), nullable=False, index=True)
+    # Store detected categories as JSON
+    detected_categories = Column(Text, nullable=True)
+    # Store matched project IDs as JSON
+    matched_project_ids = Column(Text, nullable=False)
+    # Search result summary
+    search_summary = Column(Text, nullable=True)
+    # Usage count
+    hit_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_matched_project_ids(self) -> List[int]:
+        """Get matched project IDs as list."""
+        if self.matched_project_ids:
+            return json.loads(self.matched_project_ids)
+        return []
+
+    def set_matched_project_ids(self, project_ids: List[int]):
+        """Set matched project IDs from list."""
+        self.matched_project_ids = json.dumps(project_ids) if project_ids else "[]"
+
+    def get_detected_categories(self) -> List[str]:
+        """Get detected categories as list."""
+        if self.detected_categories:
+            return json.loads(self.detected_categories)
+        return []
+
+    def set_detected_categories(self, categories: List[str]):
+        """Set detected categories from list."""
+        self.detected_categories = json.dumps(categories) if categories else "[]"
+
+
 # Predefined categories for frontend
 CATEGORIES = [
     {"id": "AI/机器学习", "name": "AI/机器学习", "description": "LLM、AI工具、Agent、机器学习框架、语音/图像/视频生成"},

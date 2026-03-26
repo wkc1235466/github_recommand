@@ -123,3 +123,21 @@ class TestModelResponse(BaseModel):
     message: str
     details: Optional[Dict[str, Any]] = None
     response_time_ms: Optional[int] = None
+
+
+class AISearchRequest(BaseModel):
+    """AI 智能搜索请求"""
+
+    query: str = Field(..., description="搜索查询", min_length=1, max_length=500)
+    use_cache: bool = Field(True, description="是否使用缓存")
+
+
+class AISearchResponse(BaseModel):
+    """AI 智能搜索响应"""
+
+    query: str
+    projects: List[ProjectResponse]
+    detected_categories: List[str]
+    search_summary: str
+    from_cache: bool
+    total_matches: int
