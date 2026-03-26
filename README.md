@@ -16,6 +16,7 @@
 - **智能分析** - 自动分析项目并生成摘要和标签
 - **模型管理** - 可视化模型管理，支持自定义模型添加
 - **连接测试** - 实时测试模型连接状态
+- **AI 智能搜索** - 两阶段语义搜索，智能识别分类并匹配项目
 
 ### 💻 现代化界面
 - **Vue 3 + Element Plus** - 现代化响应式设计
@@ -84,6 +85,7 @@ github_demo_recommend/
 │       │   ├── update_service.py     # 统一更新服务（核心）
 │       │   ├── ai_provider_service.py  # AI 提供商服务
 │       │   ├── ai_analyzer.py        # AI 分析服务
+│       │   ├── ai_search_service.py  # AI 智能搜索服务
 │       │   └── github_service.py     # GitHub API 服务
 │       │
 │       ├── xuanli199/                # 玄离199模块
@@ -264,6 +266,7 @@ App.vue (主应用)
 | POST | `/api/projects/crawl` | **统一更新** - 检查新视频并爬取 |
 | GET | `/api/projects/categories` | 获取分类列表 |
 | GET | `/api/projects/tags/popular` | 获取热门标签 |
+| POST | `/api/projects/ai-search` | **AI 智能搜索** - 语义搜索项目 |
 | GET/POST/PUT/DELETE | `/api/projects/{id}/user-tags` | 用户标签管理 |
 
 ### 统一更新接口详情
@@ -296,6 +299,35 @@ App.vue (主应用)
   }
 }
 ```
+
+### AI 智能搜索接口详情
+
+**POST `/api/projects/ai-search`**
+
+请求体：
+```json
+{
+  "query": "我需要一个图片压缩工具",
+  "use_cache": true
+}
+```
+
+响应：
+```json
+{
+  "query": "我需要一个图片压缩工具",
+  "projects": [...],
+  "detected_categories": ["媒体处理", "效率工具", "开发工具"],
+  "search_summary": "根据搜索「我需要一个图片压缩工具」，AI 在「媒体处理、效率工具、开发工具」分类中为您找到以下最相关的项目：...",
+  "from_cache": false,
+  "total_matches": 3
+}
+```
+
+**搜索特点**：
+- 两阶段搜索：先识别相关分类，再匹配项目
+- 智能缓存：7天缓存期，提升响应速度
+- 语义匹配：理解用户意图，非简单关键词匹配
 
 ### 玄离199接口
 
@@ -341,6 +373,19 @@ App.vue (主应用)
 | ai_tags | TEXT | AI 生成的标签（JSON 数组） |
 | ai_confidence | FLOAT | AI 分析置信度 |
 | ai_analyzed_at | DATETIME | AI 分析时间 |
+| created_at | DATETIME | 创建时间 |
+| updated_at | DATETIME | 更新时间 |
+
+### search_cache 表（AI 搜索缓存）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 主键 |
+| query | TEXT | 搜索查询 |
+| detected_categories | TEXT | 检测到的分类（JSON 数组） |
+| matched_project_ids | TEXT | 匹配的项目 ID（JSON 数组） |
+| search_summary | TEXT | 搜索结果摘要 |
+| hit_count | INTEGER | 缓存命中次数 |
 | created_at | DATETIME | 创建时间 |
 | updated_at | DATETIME | 更新时间 |
 
@@ -550,6 +595,8 @@ CRAWLER_MAX_VIDEOS=10
 - ✅ 模型可视化管理
 - ✅ 主页面模型快速切换
 - ✅ 用户标签管理
+- ✅ AI 智能搜索功能
+- ✅ 搜索结果缓存
 
 ### 开发中功能
 
@@ -590,4 +637,4 @@ MIT License
 
 ---
 
-**最后更新**: 2026-03-24
+**最后更新**: 2026-03-26

@@ -47,3 +47,13 @@ frontend/.vite/
 data/
 *.db
 *.json
+
+# Claude Code local configuration
+.claude/settings.local.json
+.claude/settings.json
+.claude/
+
+# Local tools and temporary files
+tools/
+*.bak
+*.tmp
