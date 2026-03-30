@@ -175,8 +175,9 @@ class ITcoffeeService:
         """从简介中解析项目名称
 
         简介格式示例:
-        1、项目名称：promptfoo – AI安全工具
-        2、项目名称：agency-agents – AI代理事务所
+        1、项目名称：Everything Claude Code – Claude Code完全优化版
+        GitHub 链接：https://github.com/xxx
+        2、项目名称：promptfoo – AI安全工具
 
         Args:
             description: 视频简介
@@ -186,10 +187,10 @@ class ITcoffeeService:
         """
         projects = []
 
-        # 模式1: 数字、项目名称：xxx – xxx
-        # 匹配: 1、项目名称：promptfoo – AI安全工具
-        # 使用 \S+ 匹配项目名称（不含空格）
-        pattern1 = r'\d+[、.．]\s*项目名称[：:]\s*(\S+)\s*[–\-—]\s*(.+)'
+        # 模式1: 数字、项目名称：xxx – xxx（支持项目名称含空格）
+        # 匹配: 1、项目名称：Everything Claude Code – Claude Code完全优化版
+        # 使用 [^–\-—]+ 匹配项目名称（到分隔符为止）
+        pattern1 = r'\d+[、.．]\s*项目名称[：:]\s*([^–\-—\n]+?)\s*[–\-—]\s*(.+)'
 
         matches = re.findall(pattern1, description)
         for name, desc in matches:
@@ -198,17 +199,19 @@ class ITcoffeeService:
             if name and len(name) > 1:
                 projects.append((name, desc))
 
-        # 如果模式1没有匹配到，尝试其他模式
-        if not projects:
-            # 模式2: 数字. 名称 – 描述
-            pattern2 = r'\d+[、.．]\s*(\S+)\s*[–\-—]\s*(.+)'
-            matches = re.findall(pattern2, description)
-            for name, desc in matches:
-                name = name.strip()
-                desc = desc.strip()
-                # 过滤掉非项目名称
-                if name and len(name) > 1 and not name.startswith('http'):
-                    projects.append((name, desc))
+        # 如果模式1匹配到了，直接返回
+        if projects:
+            return projects
+
+        # 模式2: 数字. 名称 – 描述（备用）
+        pattern2 = r'\d+[、.．]\s*([^–\-—\n]+?)\s*[–\-—]\s*(.+)'
+        matches = re.findall(pattern2, description)
+        for name, desc in matches:
+            name = name.strip()
+            desc = desc.strip()
+            # 过滤掉非项目名称
+            if name and len(name) > 1 and not name.startswith('http'):
+                projects.append((name, desc))
 
         return projects
 
