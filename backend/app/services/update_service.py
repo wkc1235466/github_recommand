@@ -80,7 +80,7 @@ class UpdateService:
         github_url: Optional[str],
         description: Optional[str],
         ai_config: Dict[str, str]
-    ) -> Tuple[Optional[str], List[str]]:
+    ) -> Tuple[Optional[str], List[str], Optional[str]]:
         """使用用户配置的 AI 模型分析项目（通过 Claude 兼容 API）
 
         Args:
@@ -90,7 +90,7 @@ class UpdateService:
             ai_config: AI 配置 (api_url, api_key, model)
 
         Returns:
-            (AI 生成的描述, AI 生成的标签列表)
+            (AI 生成的描述, AI 生成的标签列表, AI 生成的分类)
         """
         api_url = ai_config.get('api_url', '')
         api_key = ai_config.get('api_key', '')
@@ -98,7 +98,7 @@ class UpdateService:
 
         if not api_key:
             log.warning(f"AI 配置不完整，跳过分析: {name}")
-            return None, []
+            return None, [], None
 
         try:
             # 确保 URL 以 /v1/messages 结尾
@@ -138,7 +138,7 @@ class UpdateService:
                 if isinstance(error_msg, dict):
                     error_msg = error_msg.get("message", str(response_data))
                 log.error(f"AI API 返回错误 [{name}]: HTTP {response.status_code} - {error_msg}")
-                return None, []
+                return None, [], None
 
             # 提取 content 文本
             content_blocks = response_data.get("content", [])
@@ -149,19 +149,19 @@ class UpdateService:
 
             if not content:
                 log.error(f"AI 返回空内容 [{name}]")
-                return None, []
+                return None, [], None
 
             return self._parse_ai_response(content)
 
         except httpx.TimeoutException:
             log.error(f"AI 分析超时 [{name}]")
-            return None, []
+            return None, [], None
         except httpx.ConnectError as e:
             log.error(f"AI 连接失败 [{name}]: {e}")
-            return None, []
+            return None, [], None
         except Exception as e:
             log.error(f"AI 分析异常 [{name}]: {e}")
-            return None, []
+            return None, [], None
 
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
@@ -210,8 +210,15 @@ class UpdateService:
 
         return "\n".join(parts)
 
-    def _parse_ai_response(self, content: str) -> Tuple[Optional[str], List[str]]:
-        """解析 AI 响应"""
+    def _parse_ai_response(self, content: str) -> Tuple[Optional[str], List[str], Optional[str]]:
+        """解析 AI 响应
+
+        Returns:
+            (summary, tags, category)
+        """
+        from ..models.project import CATEGORIES
+        valid_categories = [c["id"] for c in CATEGORIES]
+
         try:
             # 尝试提取 JSON
             if "```json" in content:
@@ -221,14 +228,45 @@ class UpdateService:
 
             data = json.loads(content.strip())
 
-            summary = data.get("summary", "")
-            tags = data.get("tags", [])
+            summary = data.get("summary", "") or None
+            tags = data.get("tags", []) or []
+            category = data.get("category", "")
 
-            return summary if summary else None, tags if tags else []
+            # 校验分类合法性
+            if category not in valid_categories:
+                category = None
+
+            return summary, tags, category
 
         except json.JSONDecodeError:
             # 如果解析失败，返回原始内容作为描述
-            return content[:200] if content else None, []
+            return content[:200] if content else None, [], None
+
+    def _determine_category(self, ai_category: Optional[str], ai_tags: List[str]) -> str:
+        """确定项目分类
+
+        优先使用 AI 返回的 category，其次尝试从 tags 中匹配合法分类，最后回退到"其他"。
+
+        Args:
+            ai_category: AI 返回的分类（已通过合法性校验）
+            ai_tags: AI 返回的标签列表
+
+        Returns:
+            合法的分类字符串
+        """
+        from ..models.project import CATEGORIES
+        valid_categories = [c["id"] for c in CATEGORIES]
+
+        # 优先使用 AI 返回的 category
+        if ai_category and ai_category in valid_categories:
+            return ai_category
+
+        # 尝试从 tags 中匹配合法分类
+        for tag in ai_tags:
+            if tag in valid_categories:
+                return tag
+
+        return "其他"
 
     async def save_project_to_db(
         self,
@@ -322,7 +360,7 @@ class UpdateService:
 
         for project in xuanli_projects:
             # AI 分析
-            ai_summary, ai_tags = await self.analyze_project_with_config(
+            ai_summary, ai_tags, ai_category = await self.analyze_project_with_config(
                 name=project.project_name,
                 github_url=project.github_url,
                 description=None,
@@ -334,8 +372,8 @@ class UpdateService:
             else:
                 ai_failed += 1
 
-            # 确定分类
-            category = ai_tags[0] if ai_tags else "其他"
+            # 确定分类：优先使用 AI 返回的 category
+            category = self._determine_category(ai_category, ai_tags)
 
             # 保存到数据库
             saved = await self.save_project_to_db(
@@ -369,7 +407,7 @@ class UpdateService:
         for project in itcoffee_projects:
             # IT 咖啡馆没有直接的 GitHub URL，需要搜索
             # 先用 AI 分析
-            ai_summary, ai_tags = await self.analyze_project_with_config(
+            ai_summary, ai_tags, ai_category = await self.analyze_project_with_config(
                 name=project.project_name,
                 github_url=None,
                 description=project.description,
@@ -381,8 +419,8 @@ class UpdateService:
             else:
                 ai_failed += 1
 
-            # 确定分类
-            category = ai_tags[0] if ai_tags else "其他"
+            # 确定分类：优先使用 AI 返回的 category
+            category = self._determine_category(ai_category, ai_tags)
 
             # 尝试搜索 GitHub URL
             github_url = None

@@ -367,7 +367,7 @@ async def batch_analyze_projects(
         try:
             log.info(f"正在分析项目: {project.name}")
 
-            ai_summary, ai_tags = await update_service.analyze_project_with_config(
+            ai_summary, ai_tags, ai_category = await update_service.analyze_project_with_config(
                 name=project.name,
                 github_url=project.github_url,
                 description=None,
@@ -378,10 +378,7 @@ async def batch_analyze_projects(
                 project.description = ai_summary
                 if ai_tags:
                     project.set_tags_list(ai_tags[:3])
-                    from ..models.project import CATEGORIES
-                    valid_categories = [c["id"] for c in CATEGORIES]
-                    if ai_tags[0] in valid_categories:
-                        project.category = ai_tags[0]
+                project.category = update_service._determine_category(ai_category, ai_tags)
 
                 success_count += 1
                 log.info(f"项目分析成功: {project.name}")
