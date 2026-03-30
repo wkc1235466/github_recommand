@@ -309,6 +309,16 @@ const closeAISearch = () => {
 
 const handleBatchAnalyze = async () => {
   try {
+    // 从 localStorage 读取 AI 配置
+    const apiUrl = localStorage.getItem('apiUrl') || ''
+    const apiKey = localStorage.getItem('apiKey') || ''
+    const model = localStorage.getItem('model') || 'glm-4-flash'
+
+    if (!apiKey) {
+      ElMessage.warning('请先在设置中配置 AI API Key')
+      return
+    }
+
     // 先获取未分析项目数量
     const unanalyzed = await getUnanalyzedProjects(1)
     const count = unanalyzed.total
@@ -333,7 +343,7 @@ const handleBatchAnalyze = async () => {
     batchAnalyzing.value = true
     ElMessage.info(`正在分析 ${limit} 个项目，请稍候...`)
 
-    const result = await batchAnalyzeProjects(null, limit)
+    const result = await batchAnalyzeProjects(null, limit, apiKey, model)
 
     if (result.success) {
       ElMessage.success(result.message)

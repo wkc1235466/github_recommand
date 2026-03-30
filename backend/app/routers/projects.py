@@ -256,6 +256,166 @@ async def crawl_new_projects(
         await update_service.close()
 
 
+@router.get("/unanalyzed", response_model=UnanalyzedProjectsResponse)
+async def get_unanalyzed_projects(
+    limit: int = Query(50, ge=1, le=100, description="返回项目数量"),
+    session: AsyncSession = Depends(get_session),
+):
+    """获取未分析的项目列表
+
+    返回描述为空或"暂无描述"的项目列表。
+    """
+    # 查询未分析的项目（描述为空或"暂无描述"）
+    result = await session.execute(
+        select(Project)
+        .where(
+            or_(
+                Project.description.is_(None),
+                Project.description == "",
+                Project.description == "暂无描述",
+            )
+        )
+        .options(selectinload(Project.sources))
+        .order_by(Project.id.desc())
+        .limit(limit)
+    )
+    projects = result.scalars().all()
+
+    # 获取总数
+    count_result = await session.execute(
+        select(func.count(Project.id)).where(
+            or_(
+                Project.description.is_(None),
+                Project.description == "",
+                Project.description == "暂无描述",
+            )
+        )
+    )
+    total = count_result.scalar()
+
+    projects_data = [project_to_response(p) for p in projects]
+
+    return UnanalyzedProjectsResponse(
+        projects=projects_data,
+        total=total
+    )
+
+
+@router.post("/batch-analyze", response_model=BatchAnalyzeResponse)
+async def batch_analyze_projects(
+    request: BatchAnalyzeRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """批量分析未分析的项目
+
+    使用 AI 为描述为空的项目生成描述和分类。
+    """
+    # 获取 AI 配置（优先使用请求中的配置）
+    api_key = request.api_key
+    model = request.model or "glm-4-flash"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="未配置 AI API Key，请先在设置中配置")
+
+    # 查询未分析的项目
+    if request.project_ids:
+        result = await session.execute(
+            select(Project)
+            .where(Project.id.in_(request.project_ids))
+            .options(selectinload(Project.sources))
+            .limit(request.limit)
+        )
+    else:
+        result = await session.execute(
+            select(Project)
+            .where(
+                or_(
+                    Project.description.is_(None),
+                    Project.description == "",
+                    Project.description == "暂无描述",
+                )
+            )
+            .options(selectinload(Project.sources))
+            .order_by(Project.id.asc())
+            .limit(request.limit)
+        )
+
+    projects = result.scalars().all()
+
+    if not projects:
+        return BatchAnalyzeResponse(
+            success=True,
+            message="没有需要分析的项目",
+            total=0,
+            analyzed=0,
+            success_count=0,
+            failed_count=0
+        )
+
+    update_service = UpdateService()
+    ai_config = {
+        'api_key': api_key,
+        'model': model
+    }
+
+    success_count = 0
+    failed_count = 0
+    failed_projects = []
+
+    for project in projects:
+        try:
+            log.info(f"正在分析项目: {project.name}")
+
+            ai_summary, ai_tags = await update_service.analyze_project_with_config(
+                name=project.name,
+                github_url=project.github_url,
+                description=None,
+                ai_config=ai_config
+            )
+
+            if ai_summary or ai_tags:
+                project.description = ai_summary
+                if ai_tags:
+                    project.set_tags_list(ai_tags[:3])
+                    from ..models.project import CATEGORIES
+                    valid_categories = [c["id"] for c in CATEGORIES]
+                    if ai_tags[0] in valid_categories:
+                        project.category = ai_tags[0]
+
+                success_count += 1
+                log.info(f"项目分析成功: {project.name}")
+            else:
+                failed_count += 1
+                failed_projects.append({
+                    "id": project.id,
+                    "name": project.name,
+                    "reason": "AI 返回空结果"
+                })
+
+        except Exception as e:
+            failed_count += 1
+            failed_projects.append({
+                "id": project.id,
+                "name": project.name,
+                "reason": str(e)
+            })
+            log.error(f"项目分析异常: {project.name}, {e}")
+
+    await session.commit()
+
+    message = f"批量分析完成：成功 {success_count} 个，失败 {failed_count} 个"
+
+    return BatchAnalyzeResponse(
+        success=True,
+        message=message,
+        total=len(projects),
+        analyzed=len(projects),
+        success_count=success_count,
+        failed_count=failed_count,
+        failed_projects=failed_projects
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
@@ -620,177 +780,3 @@ async def ai_search(
     except Exception as e:
         log.error(f"AI search failed: {e}")
         raise HTTPException(status_code=500, detail=f"AI 搜索失败: {str(e)}")
-
-
-@router.get("/unanalyzed", response_model=UnanalyzedProjectsResponse)
-async def get_unanalyzed_projects(
-    limit: int = Query(50, ge=1, le=100, description="返回项目数量"),
-    session: AsyncSession = Depends(get_session),
-):
-    """获取未分析的项目列表
-
-    返回描述为空或"暂无描述"的项目列表。
-    """
-    # 查询未分析的项目（描述为空或"暂无描述"）
-    result = await session.execute(
-        select(Project)
-        .where(
-            or_(
-                Project.description.is_(None),
-                Project.description == "",
-                Project.description == "暂无描述",
-            )
-        )
-        .options(selectinload(Project.sources))
-        .order_by(Project.id.desc())
-        .limit(limit)
-    )
-    projects = result.scalars().all()
-
-    # 获取总数
-    count_result = await session.execute(
-        select(func.count(Project.id)).where(
-            or_(
-                Project.description.is_(None),
-                Project.description == "",
-                Project.description == "暂无描述",
-            )
-        )
-    )
-    total = count_result.scalar()
-
-    projects_data = [project_to_response(p) for p in projects]
-
-    return UnanalyzedProjectsResponse(
-        projects=projects_data,
-        total=total
-    )
-
-
-@router.post("/batch-analyze", response_model=BatchAnalyzeResponse)
-async def batch_analyze_projects(
-    request: BatchAnalyzeRequest,
-    session: AsyncSession = Depends(get_session),
-):
-    """批量分析未分析的项目
-
-    使用 AI 为描述为空的项目生成描述和分类。
-
-    Args:
-        request: 包含 project_ids（可选）和 limit
-    """
-    from ..config import get_settings
-    settings = get_settings()
-
-    # 获取 AI 配置
-    api_key = getattr(settings, 'zhipuai_api_key', None)
-    model = "glm-4-flash"
-
-    if not api_key:
-        raise HTTPException(status_code=400, detail="未配置 AI API Key，请先在设置中配置")
-
-    # 查询未分析的项目
-    if request.project_ids:
-        # 指定项目ID
-        result = await session.execute(
-            select(Project)
-            .where(Project.id.in_(request.project_ids))
-            .options(selectinload(Project.sources))
-            .limit(request.limit)
-        )
-    else:
-        # 获取所有未分析的项目
-        result = await session.execute(
-            select(Project)
-            .where(
-                or_(
-                    Project.description.is_(None),
-                    Project.description == "",
-                    Project.description == "暂无描述",
-                )
-            )
-            .options(selectinload(Project.sources))
-            .order_by(Project.id.asc())
-            .limit(request.limit)
-        )
-
-    projects = result.scalars().all()
-
-    if not projects:
-        return BatchAnalyzeResponse(
-            success=True,
-            message="没有需要分析的项目",
-            total=0,
-            analyzed=0,
-            success_count=0,
-            failed_count=0
-        )
-
-    # 使用 UpdateService 进行分析
-    update_service = UpdateService()
-    ai_config = {
-        'api_key': api_key,
-        'model': model
-    }
-
-    success_count = 0
-    failed_count = 0
-    failed_projects = []
-
-    for project in projects:
-        try:
-            log.info(f"正在分析项目: {project.name}")
-
-            # AI 分析
-            ai_summary, ai_tags = await update_service.analyze_project_with_config(
-                name=project.name,
-                github_url=project.github_url,
-                description=None,
-                ai_config=ai_config
-            )
-
-            if ai_summary or ai_tags:
-                # 更新项目
-                project.description = ai_summary
-                if ai_tags:
-                    project.set_tags_list(ai_tags[:3])
-                    # 第一个标签作为分类
-                    from ..models.project import CATEGORIES
-                    valid_categories = [c["id"] for c in CATEGORIES]
-                    if ai_tags[0] in valid_categories:
-                        project.category = ai_tags[0]
-
-                success_count += 1
-                log.info(f"项目分析成功: {project.name}")
-            else:
-                failed_count += 1
-                failed_projects.append({
-                    "id": project.id,
-                    "name": project.name,
-                    "reason": "AI 返回空结果"
-                })
-                log.warning(f"项目分析失败: {project.name}")
-
-        except Exception as e:
-            failed_count += 1
-            failed_projects.append({
-                "id": project.id,
-                "name": project.name,
-                "reason": str(e)
-            })
-            log.error(f"项目分析异常: {project.name}, {e}")
-
-    # 提交更新
-    await session.commit()
-
-    message = f"批量分析完成：成功 {success_count} 个，失败 {failed_count} 个"
-
-    return BatchAnalyzeResponse(
-        success=True,
-        message=message,
-        total=len(projects),
-        analyzed=len(projects),
-        success_count=success_count,
-        failed_count=failed_count,
-        failed_projects=failed_projects
-    )
