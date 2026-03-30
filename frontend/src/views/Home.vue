@@ -63,6 +63,16 @@
           仅显示需要补全地址的项目
         </el-checkbox>
 
+        <!-- Batch Analyze Button -->
+        <el-button
+          type="warning"
+          :icon="DocumentChecked"
+          :loading="batchAnalyzing"
+          @click="handleBatchAnalyze"
+        >
+          批量分析
+        </el-button>
+
         <!-- View Toggle -->
         <el-radio-group v-model="viewMode" size="small" class="view-toggle">
           <el-radio-button label="grid">
@@ -147,9 +157,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Grid, List, Loading, MagicStick } from '@element-plus/icons-vue'
+import { Search, Grid, List, Loading, MagicStick, DocumentChecked } from '@element-plus/icons-vue'
 import ProjectCard from '../components/ProjectCard.vue'
-import { getProjects, getCategories, deleteProject, analyzeProject, getPopularTags, aiSearch } from '../api/projects'
+import { getProjects, getCategories, deleteProject, analyzeProject, getPopularTags, aiSearch, getUnanalyzedProjects, batchAnalyzeProjects } from '../api/projects'
 
 const router = useRouter()
 const loading = ref(false)
@@ -170,6 +180,9 @@ const aiSearchResults = ref([])
 const aiSearchSummary = ref('')
 const aiDetectedCategories = ref([])
 const aiFromCache = ref(false)
+// Batch analyze states
+const batchAnalyzing = ref(false)
+const unanalyzedCount = ref(0)
 let searchTimeout = null
 
 const fetchCategories = async () => {
@@ -292,6 +305,57 @@ const closeAISearch = () => {
   aiSearchResults.value = []
   aiSearchSummary.value = ''
   aiDetectedCategories.value = []
+}
+
+const handleBatchAnalyze = async () => {
+  try {
+    // 先获取未分析项目数量
+    const unanalyzed = await getUnanalyzedProjects(1)
+    const count = unanalyzed.total
+
+    if (count === 0) {
+      ElMessage.success('所有项目都已经有描述了！')
+      return
+    }
+
+    // 确认操作
+    const limit = Math.min(count, 10) // 每次最多分析10个
+    await ElMessageBox.confirm(
+      `当前有 ${count} 个项目缺少描述，是否批量分析 ${limit} 个项目？`,
+      '批量分析确认',
+      {
+        confirmButtonText: '开始分析',
+        cancelButtonText: '取消',
+        type: 'info',
+      }
+    )
+
+    batchAnalyzing.value = true
+    ElMessage.info(`正在分析 ${limit} 个项目，请稍候...`)
+
+    const result = await batchAnalyzeProjects(null, limit)
+
+    if (result.success) {
+      ElMessage.success(result.message)
+      // 刷新项目列表
+      fetchProjects()
+      fetchCategories()
+    } else {
+      ElMessage.warning(result.message)
+    }
+
+    // 如果有失败的项目，显示详情
+    if (result.failed_projects && result.failed_projects.length > 0) {
+      console.log('分析失败的项目:', result.failed_projects)
+    }
+
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('批量分析失败: ' + (error.response?.data?.detail || error.message))
+    }
+  } finally {
+    batchAnalyzing.value = false
+  }
 }
 
 onMounted(() => {

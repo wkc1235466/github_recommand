@@ -126,3 +126,24 @@ export const aiSearch = async (query, useCache = true) => {
   })
   return response.data
 }
+
+/**
+ * Get unanalyzed projects
+ */
+export const getUnanalyzedProjects = async (limit = 50) => {
+  const response = await api.get('/projects/unanalyzed', {
+    params: { limit }
+  })
+  return response.data
+}
+
+/**
+ * Batch analyze projects
+ */
+export const batchAnalyzeProjects = async (projectIds = null, limit = 10) => {
+  const response = await api.post('/projects/batch-analyze', {
+    project_ids: projectIds,
+    limit: limit
+  })
+  return response.data
+}

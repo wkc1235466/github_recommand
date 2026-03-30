@@ -141,3 +141,39 @@ class AISearchResponse(BaseModel):
     search_summary: str
     from_cache: bool
     total_matches: int
+
+
+class UnanalyzedProjectsResponse(BaseModel):
+    """未分析项目列表响应"""
+
+    projects: List[ProjectResponse]
+    total: int
+
+
+class BatchAnalyzeRequest(BaseModel):
+    """批量分析请求"""
+
+    project_ids: Optional[List[int]] = None  # 指定项目ID列表，为空则分析所有未分析项目
+    limit: int = Field(10, ge=1, le=50, description="最多分析项目数量")
+
+
+class BatchAnalyzeProgress(BaseModel):
+    """批量分析进度"""
+
+    total: int
+    analyzed: int
+    success: int
+    failed: int
+    current_project: Optional[str] = None
+
+
+class BatchAnalyzeResponse(BaseModel):
+    """批量分析响应"""
+
+    success: bool
+    message: str
+    total: int
+    analyzed: int
+    success_count: int
+    failed_count: int
+    failed_projects: List[Dict[str, Any]] = []
