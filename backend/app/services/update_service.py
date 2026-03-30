@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 import json
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,7 +81,7 @@ class UpdateService:
         description: Optional[str],
         ai_config: Dict[str, str]
     ) -> Tuple[Optional[str], List[str]]:
-        """使用用户配置的 AI 模型分析项目
+        """使用用户配置的 AI 模型分析项目（通过 Claude 兼容 API）
 
         Args:
             name: 项目名称
@@ -91,6 +92,7 @@ class UpdateService:
         Returns:
             (AI 生成的描述, AI 生成的标签列表)
         """
+        api_url = ai_config.get('api_url', '')
         api_key = ai_config.get('api_key', '')
         model = ai_config.get('model', 'glm-4-flash')
 
@@ -99,30 +101,63 @@ class UpdateService:
             return None, []
 
         try:
-            # 使用智谱 AI SDK
-            from zhipuai import ZhipuAI
-
-            client = ZhipuAI(api_key=api_key)
+            # 确保 URL 以 /v1/messages 结尾
+            if not api_url.endswith('/v1/messages'):
+                if api_url.endswith('/'):
+                    api_url = api_url + 'v1/messages'
+                else:
+                    api_url = api_url + '/v1/messages'
 
             # 构建分析 prompt
             prompt = self._build_analysis_prompt(name, github_url, description)
 
-            # 调用智谱 AI API
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-            )
+            # 使用 httpx 调用 Claude 兼容 API
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    api_url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 1024,
+                        "messages": [
+                            {"role": "user", "content": self._get_system_prompt() + "\n\n" + prompt}
+                        ],
+                        "temperature": 0.3,
+                    },
+                )
 
             # 解析响应
-            content = response.choices[0].message.content
+            response_data = response.json()
+
+            if response.status_code != 200:
+                error_msg = response_data.get("error", {})
+                if isinstance(error_msg, dict):
+                    error_msg = error_msg.get("message", str(response_data))
+                log.error(f"AI API 返回错误 [{name}]: HTTP {response.status_code} - {error_msg}")
+                return None, []
+
+            # 提取 content 文本
+            content_blocks = response_data.get("content", [])
+            content = ""
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    content += block.get("text", "")
+
+            if not content:
+                log.error(f"AI 返回空内容 [{name}]")
+                return None, []
+
             return self._parse_ai_response(content)
 
-        except ImportError:
-            log.error("zhipuai 包未安装，请运行: pip install zhipuai")
+        except httpx.TimeoutException:
+            log.error(f"AI 分析超时 [{name}]")
+            return None, []
+        except httpx.ConnectError as e:
+            log.error(f"AI 连接失败 [{name}]: {e}")
             return None, []
         except Exception as e:
             log.error(f"AI 分析异常 [{name}]: {e}")

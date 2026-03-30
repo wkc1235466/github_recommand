@@ -354,6 +354,7 @@ async def batch_analyze_projects(
 
     update_service = UpdateService()
     ai_config = {
+        'api_url': request.api_url,
         'api_key': api_key,
         'model': model
     }

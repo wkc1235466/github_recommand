@@ -156,6 +156,7 @@ class BatchAnalyzeRequest(BaseModel):
     project_ids: Optional[List[int]] = None  # 指定项目ID列表，为空则分析所有未分析项目
     limit: int = Field(10, ge=1, le=50, description="最多分析项目数量")
     api_key: Optional[str] = None  # AI API Key
+    api_url: str = Field("", description="AI API URL（Claude 兼容端点）")
     model: str = Field("glm-4-flash", description="AI 模型")
 
 

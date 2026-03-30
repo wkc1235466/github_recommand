@@ -140,12 +140,13 @@ export const getUnanalyzedProjects = async (limit = 50) => {
 /**
  * Batch analyze projects
  */
-export const batchAnalyzeProjects = async (projectIds = null, limit = 10, apiKey = null, model = 'glm-4-flash') => {
+export const batchAnalyzeProjects = async (projectIds = null, limit = 10, apiKey = null, model = 'glm-4-flash', apiUrl = '') => {
   const response = await api.post('/projects/batch-analyze', {
     project_ids: projectIds,
     limit: limit,
     api_key: apiKey,
-    model: model
+    model: model,
+    api_url: apiUrl
   })
   return response.data
 }

@@ -343,7 +343,7 @@ const handleBatchAnalyze = async () => {
     batchAnalyzing.value = true
     ElMessage.info(`正在分析 ${limit} 个项目，请稍候...`)
 
-    const result = await batchAnalyzeProjects(null, limit, apiKey, model)
+    const result = await batchAnalyzeProjects(null, limit, apiKey, model, apiUrl)
 
     if (result.success) {
       ElMessage.success(result.message)
