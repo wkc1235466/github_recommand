@@ -91,57 +91,55 @@ class UpdateService:
         Returns:
             (AI 生成的描述, AI 生成的标签列表)
         """
-        import httpx
-
-        api_url = ai_config.get('api_url', '')
         api_key = ai_config.get('api_key', '')
-        model = ai_config.get('model', 'claude-sonnet-4-5-20251001')
+        model = ai_config.get('model', 'glm-4-flash')
 
-        if not api_url or not api_key:
+        if not api_key:
             log.warning(f"AI 配置不完整，跳过分析: {name}")
             return None, []
 
-        # 确保 URL 以 /v1/messages 结尾
-        if not api_url.endswith('/v1/messages'):
-            if api_url.endswith('/'):
-                api_url = api_url + 'v1/messages'
-            else:
-                api_url = api_url + '/v1/messages'
-
-        # 构建分析 prompt
-        prompt = self._build_analysis_prompt(name, github_url, description)
-
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    api_url,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                    },
-                    json={
-                        "model": model,
-                        "max_tokens": 500,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
+            # 使用智谱 AI SDK
+            from zhipuai import ZhipuAI
 
-                if response.status_code != 200:
-                    log.warning(f"AI 分析失败 [{name}]: HTTP {response.status_code}")
-                    return None, []
+            client = ZhipuAI(api_key=api_key)
 
-                data = response.json()
-                content = data.get("content", [])
-                if content and len(content) > 0:
-                    text = content[0].get("text", "")
-                    return self._parse_ai_response(text)
+            # 构建分析 prompt
+            prompt = self._build_analysis_prompt(name, github_url, description)
 
-                return None, []
+            # 调用智谱 AI API
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
 
+            # 解析响应
+            content = response.choices[0].message.content
+            return self._parse_ai_response(content)
+
+        except ImportError:
+            log.error("zhipuai 包未安装，请运行: pip install zhipuai")
+            return None, []
         except Exception as e:
             log.error(f"AI 分析异常 [{name}]: {e}")
             return None, []
+
+    def _get_system_prompt(self) -> str:
+        """获取系统提示词"""
+        from ..models.project import CATEGORIES
+        categories = ", ".join([c["id"] for c in CATEGORIES])
+        return f"""你是一个GitHub项目分析专家。你的任务是分析GitHub项目并生成简洁的描述和分类。
+
+你需要返回JSON格式的结果，包含以下字段：
+- summary: 项目简介（50-100字）
+- category: 项目分类，必须是以下之一: {categories}
+- tags: 建议的标签（2-3个）
+
+只返回JSON，不要有其他内容。"""
 
     def _build_analysis_prompt(
         self,
