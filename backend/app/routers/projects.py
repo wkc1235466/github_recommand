@@ -753,7 +753,11 @@ async def ai_search(
     支持缓存以提高响应速度。
     """
     try:
-        search_service = AISearchService()
+        search_service = AISearchService(
+            api_url=request.api_url,
+            api_key=request.api_key or "",
+            model=request.model,
+        )
         result = await search_service.intelligent_search(
             query=request.query,
             session=session,

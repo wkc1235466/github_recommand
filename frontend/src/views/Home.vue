@@ -283,7 +283,12 @@ const handleAISearch = async () => {
 
   aiSearching.value = true
   try {
-    const result = await aiSearch(searchQuery.value)
+    const aiConfig = {
+      apiUrl: localStorage.getItem("apiUrl") || "",
+      apiKey: localStorage.getItem("apiKey") || "",
+      model: localStorage.getItem("model") || "glm-4-flash"
+    }
+    const result = await aiSearch(searchQuery.value, true, aiConfig)
     aiSearchResults.value = result.projects
     aiSearchSummary.value = result.search_summary
     aiDetectedCategories.value = result.detected_categories

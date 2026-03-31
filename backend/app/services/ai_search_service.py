@@ -6,11 +6,10 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
+import httpx
+
 from ..models.project import Project, SearchCache, CATEGORIES
 from ..logger import log
-
-settings = get_settings()
 
 
 class AISearchResult:
@@ -30,32 +29,74 @@ class AISearchResult:
 
 
 class AISearchService:
-    """AI-powered intelligent search service."""
+    """AI-powered intelligent search service.
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "glm-4-flash"):
-        """Initialize the AI search service.
+    Uses Claude compatible API (httpx) for all AI calls.
+    """
 
-        Args:
-            api_key: ZhipuAI API key. If None, reads from settings.
-            model: Model to use. Default is glm-4-flash.
-        """
-        self.api_key = api_key or getattr(settings, 'zhipuai_api_key', None)
+    def __init__(
+        self,
+        api_url: str = "",
+        api_key: str = "",
+        model: str = "glm-4-flash"
+    ):
+        self.api_url = api_url
+        self.api_key = api_key
         self.model = model
-        self._client = None
 
-    @property
-    def client(self):
-        """Lazy load the ZhipuAI client."""
-        if self._client is None:
-            try:
-                from zhipuai import ZhipuAI
-                self._client = ZhipuAI(api_key=self.api_key)
-            except ImportError:
-                raise ImportError(
-                    "zhipuai package not installed. "
-                    "Install it with: pip install zhipuai"
+    async def _call_ai(self, prompt: str, max_tokens: int = 512) -> Optional[str]:
+        """Call Claude compatible API.
+
+        Returns the text content from the response, or None on failure.
+        """
+        if not self.api_key:
+            log.warning("AI search: no API key configured")
+            return None
+
+        # Ensure URL ends with /v1/messages
+        api_url = self.api_url
+        if not api_url.endswith('/v1/messages'):
+            if api_url.endswith('/'):
+                api_url = api_url + 'v1/messages'
+            else:
+                api_url = api_url + '/v1/messages'
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    api_url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": self.api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                    json={
+                        "model": self.model,
+                        "max_tokens": max_tokens,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                    },
                 )
-        return self._client
+
+            if response.status_code != 200:
+                log.error(f"AI search API error: HTTP {response.status_code}")
+                return None
+
+            response_data = response.json()
+            content_blocks = response_data.get("content", [])
+            content = ""
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    content += block.get("text", "")
+
+            return content.strip() if content else None
+
+        except httpx.TimeoutException:
+            log.error("AI search request timed out")
+            return None
+        except Exception as e:
+            log.error(f"AI search call failed: {e}")
+            return None
 
     async def intelligent_search(
         self,
@@ -82,12 +123,10 @@ class AISearchService:
             cached = await self._get_cached_result(query, session)
             if cached:
                 log.info(f"AI search cache hit for query: {query}")
-                # Increment hit count
                 cached.hit_count += 1
                 cached.updated_at = datetime.utcnow()
                 await session.commit()
 
-                # Fetch projects
                 project_ids = cached.get_matched_project_ids()
                 projects = await self._fetch_projects_by_ids(project_ids, session)
 
@@ -110,8 +149,13 @@ class AISearchService:
         )
         log.info(f"Found {len(category_projects)} projects in detected categories")
 
+        # If no projects found in detected categories, try keyword fallback
         if not category_projects:
-            # Fallback: search across all categories
+            category_projects = await self._search_by_keywords(query, session)
+            log.info(f"Keyword fallback found {len(category_projects)} projects")
+
+        if not category_projects:
+            # Last resort: search across all categories
             category_projects = await self._fetch_projects_by_categories(
                 [c["id"] for c in CATEGORIES], session, limit=50
             )
@@ -121,7 +165,7 @@ class AISearchService:
         top_projects = ranked_projects[:3]
 
         # Generate search summary
-        search_summary = await self._generate_search_summary(
+        search_summary = self._generate_search_summary(
             query, detected_categories, top_projects
         )
 
@@ -143,7 +187,6 @@ class AISearchService:
         session: AsyncSession
     ) -> Optional[SearchCache]:
         """Get cached search result if available and recent."""
-        # Cache expires after 7 days
         expire_date = datetime.utcnow() - timedelta(days=7)
 
         result = await session.execute(
@@ -191,32 +234,28 @@ class AISearchService:
 请只返回分类ID，用逗号分隔，不要有其他内容。
 例如: AI/机器学习,开发工具,效率工具"""
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-            )
-
-            content = response.choices[0].message.content.strip()
+        content = await self._call_ai(prompt)
+        if content:
             categories = [c.strip() for c in content.split(",") if c.strip()]
-
-            # Validate categories
             valid_categories = [c["id"] for c in CATEGORIES]
             detected = [c for c in categories if c in valid_categories]
+            if detected:
+                return detected[:3]
 
-            # If none valid, return top 3 categories
-            if not detected:
-                return [c["id"] for c in CATEGORIES[:3]]
+        # Fallback: try keyword matching against category names/descriptions
+        query_lower = query.lower()
+        keyword_matched = []
+        for c in CATEGORIES:
+            if c["id"].lower() in query_lower or any(
+                kw in query_lower for kw in c["description"].split("、")
+            ):
+                keyword_matched.append(c["id"])
 
-            return detected[:3]
+        if keyword_matched:
+            return keyword_matched[:3]
 
-        except Exception as e:
-            log.error(f"Error detecting categories: {e}")
-            # Fallback to top 3 categories
-            return [c["id"] for c in CATEGORIES[:3]]
+        # Last resort: return all categories so the search is broader
+        return [c["id"] for c in CATEGORIES]
 
     async def _fetch_projects_by_categories(
         self,
@@ -228,7 +267,26 @@ class AISearchService:
         result = await session.execute(
             select(Project).where(
                 Project.category.in_(categories)
-            ).limit(limit)
+            ).order_by(Project.id.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def _search_by_keywords(
+        self,
+        query: str,
+        session: AsyncSession,
+        limit: int = 50
+    ) -> List[Project]:
+        """Fallback keyword search when category-based search returns nothing."""
+        search_term = f"%{query}%"
+        result = await session.execute(
+            select(Project).where(
+                or_(
+                    Project.name.ilike(search_term),
+                    Project.description.ilike(search_term),
+                    Project.recommend_reason.ilike(search_term),
+                )
+            ).order_by(Project.id.desc()).limit(limit)
         )
         return list(result.scalars().all())
 
@@ -268,7 +326,6 @@ ID: {p.id}
 分类: {p.category or '未分类'}
 描述: {p.description or '暂无描述'}
 推荐原因: {p.recommend_reason or '暂无'}
-AI简介: {p.ai_summary or '暂无'}
 标签: {', '.join(p.get_tags_list()) or '无'}
 """
             project_summaries.append(summary)
@@ -285,28 +342,17 @@ AI简介: {p.ai_summary or '暂无'}
 只返回项目ID，用逗号分隔，不要有其他内容。
 例如: 1,5,3"""
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-            )
+        content = await self._call_ai(prompt)
 
-            content = response.choices[0].message.content.strip()
-
-            # Parse project IDs
+        if content:
             ranked_ids = []
             for part in content.split(","):
                 part = part.strip()
                 if part.isdigit():
                     ranked_ids.append(int(part))
 
-            # Create ID to project mapping
             id_to_project = {p.id: p for p in projects}
 
-            # Sort projects by AI ranking
             ranked_projects = []
             seen_ids = set()
 
@@ -322,12 +368,43 @@ AI简介: {p.ai_summary or '暂无'}
 
             return ranked_projects
 
-        except Exception as e:
-            log.error(f"Error ranking projects: {e}")
-            # Return projects as-is
-            return projects
+        # Fallback: keyword-based ranking
+        log.warning("AI ranking failed, using keyword fallback")
+        return self._keyword_rank_projects(query, projects)
 
-    async def _generate_search_summary(
+    def _keyword_rank_projects(
+        self,
+        query: str,
+        projects: List[Project]
+    ) -> List[Project]:
+        """Simple keyword-based ranking as fallback."""
+        query_lower = query.lower()
+        query_words = query_lower.split()
+
+        scored = []
+        for p in projects:
+            score = 0
+            name = (p.name or "").lower()
+            desc = (p.description or "").lower()
+            reason = (p.recommend_reason or "").lower()
+            tags = " ".join(p.get_tags_list() or []).lower()
+
+            for word in query_words:
+                if word in name:
+                    score += 10
+                if word in desc:
+                    score += 3
+                if word in reason:
+                    score += 2
+                if word in tags:
+                    score += 5
+
+            scored.append((score, p))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [p for _, p in scored]
+
+    def _generate_search_summary(
         self,
         query: str,
         categories: List[str],

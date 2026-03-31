@@ -119,10 +119,13 @@ export const getPopularTags = async (limit = 20) => {
 /**
  * AI intelligent search
  */
-export const aiSearch = async (query, useCache = true) => {
+export const aiSearch = async (query, useCache = true, aiConfig = {}) => {
   const response = await api.post('/projects/ai-search', {
     query,
-    use_cache: useCache
+    use_cache: useCache,
+    api_url: aiConfig.apiUrl || '',
+    api_key: aiConfig.apiKey || '',
+    model: aiConfig.model || 'glm-4-flash'
   })
   return response.data
 }

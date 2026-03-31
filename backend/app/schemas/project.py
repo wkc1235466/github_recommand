@@ -130,6 +130,9 @@ class AISearchRequest(BaseModel):
 
     query: str = Field(..., description="搜索查询", min_length=1, max_length=500)
     use_cache: bool = Field(True, description="是否使用缓存")
+    api_url: str = Field("", description="AI API URL（Claude 兼容端点）")
+    api_key: Optional[str] = Field(None, description="AI API Key")
+    model: str = Field("glm-4-flash", description="AI 模型")
 
 
 class AISearchResponse(BaseModel):
