@@ -162,7 +162,7 @@ class AISearchService:
 
         # Stage 2: Rank projects using AI
         ranked_projects = await self._rank_projects(query, category_projects)
-        top_projects = ranked_projects[:3]
+        top_projects = ranked_projects
 
         # Generate search summary
         search_summary = self._generate_search_summary(
@@ -227,7 +227,7 @@ class AISearchService:
 
         prompt = f"""用户搜索查询: "{query}"
 
-请分析这个查询，从以下分类中选择最相关的 3 个分类（按相关性排序）:
+请分析这个查询，从以下分类中选择最相关的分类（按相关性排序）:
 
 {categories_str}
 
@@ -240,7 +240,7 @@ class AISearchService:
             valid_categories = [c["id"] for c in CATEGORIES]
             detected = [c for c in categories if c in valid_categories]
             if detected:
-                return detected[:3]
+                return detected[:5]
 
         # Fallback: try keyword matching against category names/descriptions
         query_lower = query.lower()
@@ -252,7 +252,7 @@ class AISearchService:
                 keyword_matched.append(c["id"])
 
         if keyword_matched:
-            return keyword_matched[:3]
+            return keyword_matched[:5]
 
         # Last resort: return all categories so the search is broader
         return [c["id"] for c in CATEGORIES]
@@ -338,7 +338,7 @@ ID: {p.id}
 
 {projects_text}
 
-请分析这些项目与用户查询的相关性，返回最相关的 3 个项目ID（按相关性排序）。
+请分析这些项目与用户查询的相关性，返回所有相关的项目ID（按相关性排序）。
 只返回项目ID，用逗号分隔，不要有其他内容。
 例如: 1,5,3"""
 
