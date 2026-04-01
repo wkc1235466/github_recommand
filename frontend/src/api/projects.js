@@ -71,8 +71,13 @@ export const triggerCrawl = async (aiConfig) => {
 /**
  * Trigger AI analysis for a project
  */
-export const analyzeProject = async (id, force = false) => {
-  const response = await api.post(`/projects/${id}/analyze`, { force })
+export const analyzeProject = async (id, force = false, aiConfig = {}) => {
+  const response = await api.post(`/projects/${id}/analyze`, {
+    force,
+    api_url: aiConfig.apiUrl || '',
+    api_key: aiConfig.apiKey || '',
+    model: aiConfig.model || 'glm-4-flash'
+  })
   return response.data
 }
 

@@ -141,47 +141,6 @@ class AIAnalyzer:
                 analyzed_at=datetime.utcnow()
             )
 
-    async def search_github_url(self, project_name: str) -> Optional[str]:
-        """Search for GitHub URL by project name using AI.
-
-        Args:
-            project_name: Name of the project to search for.
-
-        Returns:
-            Most likely GitHub URL or None.
-        """
-        prompt = f"""请帮我找到项目 "{project_name}" 的GitHub地址。
-
-如果这个项目是知名开源项目，请返回其GitHub URL。
-如果不确定，请返回 "unknown"。
-
-只返回URL或"unknown"，不要有其他内容。"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-            )
-
-            content = response.choices[0].message.content.strip()
-
-            if content.lower() == "unknown" or "github.com" not in content:
-                return None
-
-            # Extract GitHub URL
-            import re
-            match = re.search(r'https?://github\.com/[\w\-]+/[\w\-\.]+', content)
-            if match:
-                return match.group(0)
-
-            return None
-
-        except Exception as e:
-            print(f"Error searching GitHub URL: {e}")
-            return None
 
 
 # Convenience function

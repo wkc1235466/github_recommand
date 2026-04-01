@@ -261,7 +261,12 @@ const handleDelete = async (id) => {
 const handleAnalyze = async (id) => {
   try {
     ElMessage.info('正在分析项目...')
-    const result = await analyzeProject(id, false)
+    const aiConfig = {
+      apiUrl: localStorage.getItem("apiUrl") || "",
+      apiKey: localStorage.getItem("apiKey") || "",
+      model: localStorage.getItem("model") || "glm-4-flash"
+    }
+    const result = await analyzeProject(id, false, aiConfig)
     if (result.success) {
       ElMessage.success(`分析完成: ${result.category}`)
       fetchProjects()

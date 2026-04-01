@@ -77,6 +77,9 @@ class AnalyzeRequest(BaseModel):
     """Schema for analyze request."""
 
     force: bool = False  # Force re-analyze even if already analyzed
+    api_url: str = Field("", description="AI API URL（Claude 兼容端点）")
+    api_key: Optional[str] = Field(None, description="AI API Key")
+    model: str = Field("glm-4-flash", description="AI 模型")
 
 
 class AnalyzeResult(BaseModel):

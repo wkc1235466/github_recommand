@@ -337,7 +337,12 @@ const refreshReadme = () => {
 const handleAnalyze = async () => {
   analyzing.value = true
   try {
-    const result = await analyzeProject(project.value._id, true)
+        const aiConfig = {
+      apiUrl: localStorage.getItem("apiUrl") || "",
+      apiKey: localStorage.getItem("apiKey") || "",
+      model: localStorage.getItem("model") || "glm-4-flash"
+    }
+    const result = await analyzeProject(project.value._id, true, aiConfig)
     if (result.success) {
       ElMessage.success('分析完成')
       await fetchProject()

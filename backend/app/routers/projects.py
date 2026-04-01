@@ -542,20 +542,33 @@ async def analyze_project(
             summary=project.ai_summary
         )
 
+    if not request.api_key:
+        raise HTTPException(status_code=400, detail="未配置 AI API Key，请先在设置中配置")
+
     try:
-        analyzer = AIAnalyzer()
-        analysis = await analyzer.analyze_project(
+        update_service = UpdateService()
+        ai_config = {
+            'api_url': request.api_url,
+            'api_key': request.api_key,
+            'model': request.model,
+        }
+
+        ai_summary, ai_tags, ai_category = await update_service.analyze_project_with_config(
             name=project.name,
             github_url=project.github_url,
-            existing_description=project.description
+            description=project.description,
+            ai_config=ai_config
         )
 
+        if not ai_summary and not ai_tags:
+            raise HTTPException(status_code=500, detail="AI 返回空结果")
+
         # Update project
-        project.ai_summary = analysis.summary
-        project.set_ai_tags_list(analysis.suggested_tags)
-        project.ai_confidence = analysis.confidence
-        project.ai_analyzed_at = analysis.analyzed_at
-        project.category = analysis.suggested_tags[0] if analysis.suggested_tags else "其他工具"
+        if ai_summary:
+            project.description = ai_summary
+        if ai_tags:
+            project.set_tags_list(ai_tags[:3])
+        project.category = update_service._determine_category(ai_category, ai_tags)
         project.updated_at = datetime.utcnow()
 
         await session.commit()
@@ -565,9 +578,11 @@ async def analyze_project(
             message="Analysis completed successfully",
             project_id=str(project_id),
             category=project.category,
-            summary=analysis.summary
+            summary=ai_summary or ""
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
