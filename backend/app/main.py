@@ -1,9 +1,11 @@
 """Main FastAPI application entry point."""
 
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .database import init_db, close_db
@@ -81,11 +83,31 @@ async def health_check():
     return {"status": "healthy", "app": settings.app_name}
 
 
+# Mount static files for frontend (after API routes)
+STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+
 @app.get("/")
 async def root():
-    """根路径端点"""
+    """根路径端点 - 返回前端页面"""
+    if STATIC_DIR.exists():
+        return FileResponse(STATIC_DIR / "index.html")
     return {
         "message": "GitHub Project Recommendation API",
         "docs": "/docs",
         "health": "/health",
     }
+
+
+# Catch-all route for frontend SPA routing
+@app.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    """处理前端路由，返回 index.html"""
+    # 不处理 API 路由和静态资源
+    if full_path.startswith("api/") or full_path.startswith("assets/") or full_path == "health":
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    if STATIC_DIR.exists():
+        return FileResponse(STATIC_DIR / "index.html")
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
