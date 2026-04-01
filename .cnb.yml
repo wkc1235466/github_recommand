@@ -1,10 +1,16 @@
-name: github-recommend
-
-services:
-  - name: backend
-    type: web
-    dockerfile: Dockerfile
-    port: 8000
-    env:
-      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY}
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
+version: 1.0
+build:
+  steps:
+    - name: Build Docker image
+      run: docker build -t github-recommand:latest .
+    - name: Run container
+      run: |
+        docker run -d \
+          -p 8000:8000 \
+          --name github-recommand \
+          --restart always \
+          -v $(pwd)/data:/app/data \
+          github-recommand:latest
+deploy:
+  type: docker
+  port: 8000
