@@ -1,0 +1,10 @@
+name: github-recommend
+
+services:
+  - name: backend
+    type: web
+    dockerfile: Dockerfile
+    port: 8000
+    env:
+      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
